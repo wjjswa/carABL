@@ -213,7 +213,7 @@ For a real-data integration smoke test, after downloading the dataset/checkpoint
 
 ```bash
 git pull
-sbatch --job-name=carABL-smoke scripts/slurm_job.sh smoke --activegcd
+sbatch --job-name=carABL-smoke --time=00:30:00 scripts/slurm_job.sh smoke --activegcd
 ```
 
 Add the usual Artemis partition/resource options if required. Without
@@ -239,6 +239,6 @@ batch size. CPU smoke runs are possible via `--device cpu` but may take longer.
 
 See [docs/artemis_submission.md](docs/artemis_submission.md) for the files needed on
 Artemis, commands for every experiment and DINO/probe dependencies. The Slurm
-wrapper now defaults to the confirmed 30-minute smoke-test request; choose a
-permitted longer time explicitly for full training. Setup installs optional
+wrapper defaults to partition gpu with a 24-hour request, within its documented
+3-day maximum. Override with --time=00:30:00 for smoke tests. Setup installs optional
 Kaggle dependencies including `six` via `.[test,data]`.

@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=carABL
+#SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --time=00:30:00
-# Smoke-compatible default. Override --time for full jobs after checking limits.
+#SBATCH --time=1-00:00:00
+# gpu allows up to 3 days. Smoke jobs should override --time=00:30:00.
 #SBATCH --output=carABL-%j.log
 # Resource/partition directives remain site-specific; adjust to your allocation.
 set -euo pipefail

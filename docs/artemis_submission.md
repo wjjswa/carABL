@@ -9,9 +9,9 @@ carabl; rebuilds PATH; clears shell command hashing; verifies Python >=3.10
 and that its prefix matches the activated Conda environment. The base switch
 is shell activation only: it does not update the shared base installation.
 
-The Slurm wrapper uses unbuffered Python logs. Its default is now 00:30:00,
-which succeeded for the smoke-job submission. Full jobs can require more
-time: choose an allowed limit explicitly using sbatch --time.
+The Slurm wrapper uses unbuffered Python logs. It now explicitly selects
+partition gpu and requests 1-00:00:00 (24 hours), within the supplied 3-day
+GPU partition maximum. Smoke jobs should override --time=00:30:00.
 The setup script includes Kaggle and six, addressing the missing-six error.
 None of these edits changes experiment methods or training fractions.
 
@@ -57,16 +57,17 @@ tail -n 100 carABL-JOB_ID.log
 
 Replace JOB_ID. An activation/GPU banner alone is not a completed smoke test.
 
-Inspect the general partition limit:
+Inspect the current GPU partition limit:
 
 ```bash
-sinfo -p general -o "%P %a %l %G"
+sinfo -p gpu -o "%P %a %l %G"
 ```
 
 Use an allowed time long enough for a particular training run. The 30-minute
 smoke request is not a guarantee that full DINO/ActiveGCD training will finish.
-Do not revert to the rejected 24-hour request without confirming a suitable
-partition/time policy.
+The rejected 24-hour request used the default general partition, which permits
+only 8 hours. The same request is within the documented gpu partition limit.
+The running general-partition smoke job does not need to be changed.
 
 ## Commands for each experiment
 
@@ -135,3 +136,34 @@ python -m streamlit run app.py --server.address 127.0.0.1
 Use your SSH tunnel to view Streamlit. Smoke scores must not be mixed into
 research figures. The full-matrix driver runs sequentially and may exceed one
 allocation's wall time; separate experiment jobs are preferable for scheduling.
+
+## Supplied Artemis partition limits
+
+| Partition | Maximum runtime | Slurm time value |
+|---|---|---|
+| general | 8 hours | 08:00:00 |
+| short | 2 hours | 02:00:00 |
+| long | 8 days | 8-00:00:00 |
+| verylong | 30 days | 30-00:00:00 |
+| gpu | 3 days | 3-00:00:00 |
+
+These are the limits supplied from the Artemis documentation. Partition access,
+GPU availability and any account/QoS restrictions remain enforced by Slurm.
+The listed CPU/RAM slot allowances are not instructions to request all resources.
+Our single-GPU job retains 8 CPUs and 32 GB RAM.
+
+Smoke submission:
+
+```bash
+sbatch --partition=gpu --time=00:30:00 --job-name=carABL-smoke \\
+  scripts/slurm_job.sh smoke --activegcd
+```
+
+Example full training submission (inherits gpu + 24 hours):
+
+```bash
+sbatch scripts/slurm_job.sh supervised --experiment 2 --method full --fraction .2 --seed 0
+```
+
+Keep the DINO/probe dependency order described above; the entire experiment
+matrix is not guaranteed to fit in one 24-hour allocation.
