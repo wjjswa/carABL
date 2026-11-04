@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+.venv/
+data/
+weights/
+outputs/
+logs/
+*.pt
+*.pth
+.env
+kaggle.json
+.streamlit/secrets.toml

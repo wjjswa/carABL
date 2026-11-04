@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "carabl-experiments"
+version = "0.1.0"
+requires-python = ">=3.10"
+description = "Reproducible vehicle damage transfer and category discovery experiments"
+dependencies = ["torch>=2.3,<3", "torchvision>=0.18,<1", "ultralytics>=8.3,<9", "huggingface-hub>=0.25,<2", "numpy>=1.26,<3", "pandas>=2,<3", "scikit-learn>=1.4,<2", "scipy>=1.11,<2", "Pillow>=10,<13", "PyYAML>=6,<7", "matplotlib>=3.8,<4", "streamlit>=1.50,<2", "tqdm>=4.66,<5", "socksio>=1,<2"]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10"]
+
+[project.scripts]
+carabl = "carrepair.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["carrepair*"]
+
+[tool.setuptools.package-data]
+"carrepair.vendor.activegcd" = ["LICENSE"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

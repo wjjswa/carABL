@@ -1,0 +1,51 @@
+manifest: data/prepared/manifest.csv
+data_root: data/kaggle
+output: outputs
+checkpoint: weights/cardd-v2.pt
+fractions: [0.2, 0.4, 0.6, 0.8, 1.0]
+seeds: [0, 1, 2]
+image_size: 224
+batch_size: 32
+workers: 4
+epochs: 50
+probe_epochs: 50
+lr: 0.0001
+head_lr: 0.001
+weight_decay: 0.0001
+methods: [full, lora, block, linear]
+lora_rank: 8
+lora_alpha: 8
+block_bottleneck: 64
+device: cuda
+knn_k: [1, 3, 5, 10, 20]
+knn_temperature: [0.07, 0.1]
+dino:
+  epochs: 100
+  projection_dim: 1024
+  hidden_dim: 2048
+  student_temperature: 0.1
+  teacher_temperature: 0.04
+  warmup_teacher_temperature: 0.04
+  warmup_epochs: 10
+  teacher_momentum: 0.996
+  local_crops: 4
+  local_size: 96
+  global_scale: [0.6, 1.0]
+  local_scale: [0.2, 0.6]
+activegcd:
+  known: [bumper_dent, door_dent, bumper_scratch, door_scratch]
+  novel: [glass_shatter, head_lamp, tail_lamp]
+  labelled_known_fraction: 0.8
+  base_epochs: 100
+  round_epochs: 15
+  rounds: 5
+  queries: 12
+  adaptive_round: 2
+  lr: 0.001
+  batch_size: 32
+  al_batch_size: 8
+  sup_weight: 0.35
+  memax_weight: 2.0
+  ema_decay: 0.9
+  grad_from_block: 11
+  dino_repo: facebookresearch/dino:7c446df5b9f45747937fb0d72314eb9f7b66930a

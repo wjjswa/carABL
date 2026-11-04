@@ -1,0 +1,2 @@
+# Preserve the upstream research file verbatim, including its original whitespace.
+carrepair/vendor/** -whitespace

@@ -1,0 +1,39 @@
+{
+  "raw_count": 1594,
+  "deduplicated_count": 1505,
+  "seed": 42,
+  "near_duplicate_hamming_threshold": 2,
+  "counts": {
+    "train": {
+      "unknown": 382,
+      "door_dent": 134,
+      "door_scratch": 108,
+      "glass_shatter": 94,
+      "tail_lamp": 94,
+      "head_lamp": 92,
+      "bumper_dent": 89,
+      "bumper_scratch": 57
+    },
+    "val": {
+      "unknown": 82,
+      "door_dent": 29,
+      "door_scratch": 23,
+      "glass_shatter": 21,
+      "tail_lamp": 21,
+      "head_lamp": 20,
+      "bumper_dent": 20,
+      "bumper_scratch": 13
+    },
+    "test": {
+      "unknown": 82,
+      "door_dent": 29,
+      "door_scratch": 23,
+      "glass_shatter": 21,
+      "tail_lamp": 20,
+      "head_lamp": 20,
+      "bumper_dent": 19,
+      "bumper_scratch": 12
+    }
+  },
+  "limitations": "Perceptual hashing cannot identify every related vehicle photograph or CarDD overlap. Inspect groups and supply vehicle IDs where available."
+}
