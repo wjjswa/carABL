@@ -17,7 +17,13 @@ fi
 module load CUDA/12.4.0
 module load Miniconda3/4.12.0
 source "$(conda info --base)/etc/profile.d/conda.sh"
+# sbatch may inherit CONDA_SHLVL/CONDA_PREFIX from an active login environment.
+# Loading the module can reset PATH to base; reactivating the same name may then
+# be a no-op. Switching via base forces Conda to rebuild the project PATH.
+conda activate base
 conda activate "${CARABL_CONDA_ENV:-carabl}"
+export PATH="$CONDA_PREFIX/bin:$PATH"
+hash -r
 set -u
 export PYTHONNOUSERSITE=1
-python -c 'import sys; print("Python:", sys.version.split()[0], "Environment:", sys.prefix); assert sys.version_info >= (3, 10), "carABL requires Python >= 3.10"'
+python -c 'import os,sys; print("Python:", sys.version.split()[0], "Executable:", sys.executable, "Environment:", sys.prefix); assert sys.version_info >= (3, 10), "carABL requires Python >= 3.10"; assert os.path.realpath(sys.prefix) == os.path.realpath(os.environ["CONDA_PREFIX"]), "Python does not match the activated Conda environment"'
