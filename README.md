@@ -30,6 +30,10 @@ do not train on the login node. Run from the repository root.
 ```bash
 git clone https://github.com/wjjswa/carABL.git
 cd carABL
+module load CUDA/12.4.0
+module load Miniconda3/4.12.0
+source "$(conda info --base)/etc/profile.d/conda.sh"
+# Only create this environment once; skip creation if carabl already exists.
 conda create -n carabl python=3.11 -y
 conda activate carabl
 # Keep your platform's compatible CUDA-enabled PyTorch, or install one appropriate
@@ -42,6 +46,24 @@ bash scripts/setup_remote.sh
 resource directives to match your platform. Single-run commands below also work
 inside an interactive GPU allocation. CPU runs are supported via `--device cpu`.
 This code is single-process/single-GPU; launch separate jobs for different seeds.
+
+All job/setup scripts source `scripts/artemis_env.sh`, which loads
+`CUDA/12.4.0` and `Miniconda3/4.12.0`, initialises Conda and activates
+`carabl`. It disables user-site packages so the earlier Python 3.9 user install
+cannot interfere. It does not update the shared Conda base. Set
+`CARABL_CONDA_ENV` only if you intentionally use a different project environment.
+
+From the repository root, after preparing the dataset/checkpoint:
+
+```bash
+git pull
+sbatch scripts/slurm_job.sh supervised --experiment 2 --method full --fraction .2 --seed 0
+```
+
+Adjust the Slurm resource/partition flags to your Artemis allocation. Job scripts
+verify GPU access before starting. The setup script permits CPU-only checks on
+the login node. To run the entire matrix within an existing GPU allocation, use
+`bash scripts/run_experiments.sh`; this may exceed a single job's wall time.
 
 ## Obtain and inspect the target dataset
 

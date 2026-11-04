@@ -5,8 +5,18 @@
 #SBATCH --mem=32G
 #SBATCH --time=24:00:00
 #SBATCH --output=carABL-%j.log
-# TEMPLATE: confirm scheduler/partition/GPU directives with your platform.
+# Resource/partition directives remain site-specific; adjust to your allocation.
 set -euo pipefail
-cd "${SLURM_SUBMIT_DIR:-$PWD}"
-# Activate your Conda environment before submission, or add its activation here.
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Slurm spools this script elsewhere; use the submission directory in batch.
+if [[ -n "${SLURM_SUBMIT_DIR:-}" ]]; then
+    PROJECT_ROOT="$SLURM_SUBMIT_DIR"
+fi
+cd "$PROJECT_ROOT"
+source scripts/artemis_env.sh
+python -c 'import torch; print("PyTorch:", torch.__version__, "CUDA:", torch.version.cuda); assert torch.cuda.is_available(), "No GPU available. Run this training script inside an allocated GPU job."; print("GPU:", torch.cuda.get_device_name(0))'
+if [[ $# -eq 0 ]]; then
+    echo "Usage: sbatch scripts/slurm_job.sh supervised --experiment 2 --method full --fraction .2 --seed 0" >&2
+    exit 2
+fi
 python -m carrepair "$@"
