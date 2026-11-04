@@ -155,7 +155,7 @@ Our single-GPU job retains 8 CPUs and 32 GB RAM.
 Smoke submission:
 
 ```bash
-sbatch --partition=gpu --time=00:30:00 --job-name=carABL-smoke \\
+sbatch --partition=gpu --time=00:30:00 --job-name=carABL-smoke \
   scripts/slurm_job.sh smoke --activegcd
 ```
 
