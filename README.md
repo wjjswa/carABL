@@ -234,3 +234,11 @@ research results. A successful run ends with `SMOKE TEST PASSED` and writes
 These tiny-run scores are **not benchmark results**. Passing does not prove that
 a larger production batch will fit GPU memory; start full runs with a suitable
 batch size. CPU smoke runs are possible via `--device cpu` but may take longer.
+
+## Artemis submission checklist
+
+See [docs/artemis_submission.md](docs/artemis_submission.md) for the files needed on
+Artemis, commands for every experiment and DINO/probe dependencies. The Slurm
+wrapper now defaults to the confirmed 30-minute smoke-test request; choose a
+permitted longer time explicitly for full training. Setup installs optional
+Kaggle dependencies including `six` via `.[test,data]`.

@@ -3,7 +3,8 @@
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --time=24:00:00
+#SBATCH --time=00:30:00
+# Smoke-compatible default. Override --time for full jobs after checking limits.
 #SBATCH --output=carABL-%j.log
 # Resource/partition directives remain site-specific; adjust to your allocation.
 set -euo pipefail
@@ -19,4 +20,4 @@ if [[ $# -eq 0 ]]; then
     echo "Usage: sbatch scripts/slurm_job.sh supervised --experiment 2 --method full --fraction .2 --seed 0" >&2
     exit 2
 fi
-python -m carrepair "$@"
+python -u -m carrepair "$@"

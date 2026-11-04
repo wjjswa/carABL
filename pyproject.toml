@@ -11,6 +11,7 @@ dependencies = ["torch>=2.3,<3", "torchvision>=0.18,<1", "ultralytics>=8.3,<9", 
 
 [project.optional-dependencies]
 test = ["pytest>=8,<10"]
+data = ["kaggle", "six>=1.16"]
 
 [project.scripts]
 carabl = "carrepair.cli:main"
