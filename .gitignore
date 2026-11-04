@@ -12,3 +12,5 @@ logs/
 .env
 kaggle.json
 .streamlit/secrets.toml
+
+outputs_smoke/

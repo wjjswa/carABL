@@ -38,7 +38,15 @@ def main(argv=None):
             p.add_argument('--experiments', nargs='+', default=['1', '2', '3', '4', '5b'])
     export = sub.add_parser('export')
     export.add_argument('--output', default='outputs')
+    smoke = sub.add_parser('smoke', help='Short isolated real-data integration checks')
+    smoke.add_argument('--config', default='configs/default.yaml')
+    smoke.add_argument('--device')
+    smoke.add_argument('--activegcd', action='store_true', help='Also run the actual ViT-B/16 base and one annotation round for both strategies')
     args = parser.parse_args(argv)
+    if args.command == 'smoke':
+        from .smoke import run
+        run(args.config, args.device, args.activegcd)
+        return
     if args.command == 'prepare':
         from .data import prepare
         print(prepare(args.root, args.out, args.csv, args.path_column, args.label_column, args.group_column, args.seed, args.near_distance).groupby(['split', 'label']).size())

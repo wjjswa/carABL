@@ -205,3 +205,32 @@ The test suite covers leakage rejection, grouped nested subsets, label-free DINO
 data, teacher gradients, frozen BatchNorm, identity-initialised adapters,
 k-NN selection, ActiveGCD sampling/mapping and a real YOLO forward/backward pass.
 Remote GPU training quality and Kaggle performance require running the jobs.
+
+## Short preflight before full submissions
+
+The 12 pytest checks run on the login node and require no GPU allocation.
+For a real-data integration smoke test, after downloading the dataset/checkpoint:
+
+```bash
+git pull
+sbatch --job-name=carABL-smoke scripts/slurm_job.sh smoke --activegcd
+```
+
+Add the usual Artemis partition/resource options if required. Without
+`--activegcd`, the smoke command checks Experiments 1–4 only. Within an existing
+GPU allocation, use `python -m carrepair smoke --activegcd` directly.
+
+It uses a copied manifest containing three training, one validation and one test
+image per class; keeps the source split/config untouched; trains one epoch per
+method; tests linear heads and k-NN; runs one DINO epoch per method and frozen
+probes; and optionally checks real ViT-B/16 ActiveGCD base training plus one
+annotation round for random/adaptive selection. It also checks saved image and
+comparison outputs. The first ActiveGCD invocation downloads its pretrained
+backbone if not cached.
+
+All smoke artifacts go under **outputs_smoke/TIMESTAMP/**, outside the normal
+research results. A successful run ends with `SMOKE TEST PASSED` and writes
+`smoke_report.json`; failures stop at the first failing stage and record it.
+These tiny-run scores are **not benchmark results**. Passing does not prove that
+a larger production batch will fit GPU memory; start full runs with a suitable
+batch size. CPU smoke runs are possible via `--device cpu` but may take longer.
