@@ -242,3 +242,17 @@ Artemis, commands for every experiment and DINO/probe dependencies. The Slurm
 wrapper defaults to partition gpu with a 24-hour request, within its documented
 3-day maximum. Override with --time=00:30:00 for smoke tests. Setup installs optional
 Kaggle dependencies including `six` via `.[test,data]`.
+
+## Submit the complete experiment matrix
+
+See [docs/all_experiments.md](docs/all_experiments.md) for the full 136-job
+matrix (three seeds), dependency handling and duplicate-job tracking.
+
+```bash
+bash scripts/submit_all.sh           # preview only
+bash scripts/submit_all.sh --submit  # queue separate Slurm jobs
+```
+
+This is a login-node submission launcher. It records actual Slurm IDs and
+sets each DINO probe to wait for its matching adaptation job. k-NN is included
+in each classification evaluation, not submitted as an additional job.
