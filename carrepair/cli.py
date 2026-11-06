@@ -16,7 +16,7 @@ def main(argv=None):
     prep.add_argument('--near-distance', type=int, default=2)
     download = sub.add_parser('download-model')
     download.add_argument('--out', default='weights/cardd-v2.pt')
-    for name in ['direct', 'supervised', 'dino', 'probe', 'activegcd', 'matrix']:
+    for name in ['direct', 'supervised', 'dino', 'probe', 'activegcd', 'matrix', 'open-set']:
         p = sub.add_parser(name)
         p.add_argument('--config', default='configs/default.yaml')
         p.add_argument('--device'); p.add_argument('--output'); p.add_argument('--resume', action='store_true')
@@ -84,6 +84,9 @@ def main(argv=None):
             if args.run:
                 subprocess.run(command, check=True)
         return
+    if args.command == 'open-set':
+        from .open_set import run
+        return run(cfg, args.resume)
     if args.command == 'direct':
         from .inference import direct
         direct(cfg, args.confidence, args.image_size)

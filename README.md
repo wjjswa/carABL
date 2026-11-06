@@ -256,3 +256,7 @@ bash scripts/submit_all.sh --submit  # queue separate Slurm jobs
 This is a login-node submission launcher. It records actual Slurm IDs and
 sets each DINO probe to wait for its matching adaptation job. k-NN is included
 in each classification evaluation, not submitted as an additional job.
+
+## Seven-class training with assessor referral
+
+Submit `bash scripts/submit_open_set.sh` on Artemis to compare full fine-tuning and training from scratch for 100 epochs per seed with the miscellaneous `unknown` class withheld from training and validation. The [experiment instructions](docs/open_set.md) cover job monitoring, the mixed known/unknown test and the results archive.
