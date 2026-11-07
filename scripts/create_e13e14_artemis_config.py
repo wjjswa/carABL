@@ -7,7 +7,7 @@ import yaml
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--e11", default="configs/e11_artemis.yaml")
+    p.add_argument("--e11", default="../carABL-e11/configs/e11_artemis.yaml")
     p.add_argument("--template", default="configs/e13e14.yaml")
     p.add_argument("--output", default="configs/e13e14_artemis.yaml")
     args = p.parse_args()
