@@ -204,6 +204,8 @@ def early_stopping_step(score, state, cfg, epoch):
     to reset patience. The separate best.pt always tracks the true max F1.
     """
     p = cfg["early_stopping"]
+    if p.get("monitor") != "val_macro_f1":
+        raise ValueError("E8 supports early-stopping monitor=val_macro_f1 only")
     patience = int(p["patience"])
     min_delta = float(p.get("min_delta", 0.0))
     if patience < 1 or min_delta < 0:
