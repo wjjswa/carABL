@@ -283,6 +283,9 @@ def train(cfg, task, seed, resume=False):
         early_state = state.get("early_stopping_state")
         if start and early_state is None:
             raise ValueError("Checkpoint lacks early-stopping state; use fresh outputs")
+        if early_state["bad_epochs"] >= cfg["early_stopping"]["patience"]:
+            print("E9 early stopping was already reached; finalizing test only.", flush=True)
+            start = int(cfg["epochs"])
     train_eval = make_loader(train_frame, cfg, task)
     val_eval = make_loader(val_frame, cfg, task)
     test_eval = make_loader(test_frame, cfg, task)
