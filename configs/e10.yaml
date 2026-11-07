@@ -1,0 +1,31 @@
+# E10: five-class root -> three independent part-specific experts -> hard/soft routing.
+# Original group-disjoint manifest and images; never re-split or tune on test.
+manifest: data/prepared/manifest.csv
+data_root: data/kaggle
+output: outputs/e10
+device: cuda
+workers: 4
+batch_size: 16
+image_size: 384
+epochs: 300  # Maximum for EACH stage; root and every expert early-stop independently.
+early_stopping:
+  monitor: val_macro_f1
+  patience: 30
+  min_delta: 0.001
+seeds: [0, 1, 2]
+lr: 0.0001
+head_lr: 0.001
+weight_decay: 0.0001
+pretrained:
+  repository: Majorburn/yolov11-carparts-seg
+  revision: f26ca7107b40dd9a385ea82fd2fef8a3d6044dc7
+  filename: best.pt
+  checkpoint: weights/carparts/majorburn_yolo11_carparts_best.pt
+  expected_classes: 23
+  sha256: 6759cf983e0bdefaa95d2d3fc6b37f89d3718a319c08617c3c7a339e18fdc3cd
+overfitting:
+  window: 15
+  min_train_loss_improvement: 0.02
+  min_val_loss_worsening: 0.02
+  min_val_train_loss_ratio: 1.30
+  min_accuracy_gap: 0.12
