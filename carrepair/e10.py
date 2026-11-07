@@ -527,6 +527,10 @@ def evaluate_cascade(cfg, seed):
     hard = prediction_metrics(y_true, hard_pred)
     soft = prediction_metrics(y_true, soft_pred)
     parent_true = np.asarray([ROOT.index(root_label(label)) for label in test.label])
+    bumper_door = np.isin(parent_true, [ROOT.index("bumper"), ROOT.index("door")])
+    # Shared 83-image test slice: directly comparable to E9-B two-class test,
+    # counting every off-branch lamp/glass/unknown prediction as incorrect.
+    root_bd_accuracy = float((parent_pred[bumper_door] == parent_true[bumper_door]).mean())
     trace = test[["id", "path", "label"]].copy().reset_index(drop=True)
     trace["true_root"] = [ROOT[i] for i in parent_true]
     trace["predicted_root"] = [ROOT[i] for i in parent_pred]
@@ -559,6 +563,8 @@ def evaluate_cascade(cfg, seed):
         "seed": seed, "n_test": len(test),
         "classes": list(EIGHT), "root_classes": list(ROOT),
         "root_accuracy": decomposition["root_accuracy"],
+        "root_bumper_door_accuracy": root_bd_accuracy,
+        "root_bumper_door_n_test": int(bumper_door.sum()),
         "root_macro_f1": float(f1_score(
             parent_true, parent_pred, labels=list(range(len(ROOT))),
             average="macro", zero_division=0)),
