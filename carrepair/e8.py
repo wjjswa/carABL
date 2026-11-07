@@ -286,7 +286,9 @@ def train_one(cfg, variant, seed, resume=False):
     print(f"E8 {variant} seed{seed}: {len(train_frame)} train, {len(val_frame)} val, "
           f"{len(test_frame)} test, {len(labels)} labels; 300 epochs", flush=True)
     for epoch in range(start, int(cfg["epochs"])):
-        # Per-epoch loader seed makes resumed shuffle reproducible.
+        # Set augmentation, dropout and sampler RNG by (run seed, epoch), so
+        # a resumed run reproduces the same subsequent epoch as an uninterrupted run.
+        seed_all(seed * 100000 + epoch + 1)
         training = loader(train_frame, cfg, labels, train=True, seed=seed * 1000 + epoch)
         model.train()
         running, count = 0.0, 0
