@@ -73,7 +73,8 @@ def test_prequential_metrics_do_not_set_novel_semantics():
         [0,2],["known_classifier","new_cluster"],[.9,-12.],["known_a","known_b"])
     assert metrics["known_semantic_accuracy"]==1.0
     assert metrics["novel_detection_recall"]==1.0
-    assert metrics["new_class_count_given_to_algorithm"] if False else True
+    assert metrics["estimated_novel_class_count"] == 1
+    assert metrics["true_novel_class_count_evaluation_only"] == 1
     assert metrics["test_labels_used_to_train_or_update"] is False
     assert records.loc[1,"prediction_without_test_labels"]=="novel_cluster_001"
     assert "future_c" not in records.loc[1,"prediction_without_test_labels"]
