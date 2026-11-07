@@ -235,6 +235,8 @@ def train_one(cfg, variant, seed, resume=False):
         raise ValueError(f"Seed {seed} not in config.seeds: {cfg['seeds']}")
     if int(cfg["epochs"]) != 300:
         raise ValueError("E8 protocol requires exactly 300 epochs")
+    if file_hash(cfg["pretrained"]["checkpoint"]) != cfg["pretrained"]["sha256"]:
+        raise ValueError("E8 pretrained checkpoint SHA256 mismatch")
     seed_all(seed)
     partitions, labels = select_data(read_manifest(cfg["manifest"]), variant)
     train_frame, val_frame, test_frame = partitions
@@ -440,10 +442,15 @@ def download(cfg):
     destination = Path(p["checkpoint"])
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists():
-        print(f"Using existing checkpoint: {destination} SHA256 {file_hash(destination)}")
+        actual = file_hash(destination)
+        if actual != p["sha256"]:
+            raise ValueError(f"Unexpected pretrained checkpoint SHA256: {actual}")
+        print(f"Using verified checkpoint: {destination} SHA256 {actual}")
         return
     upstream = hf_hub_download(
         repo_id=p["repository"], filename=p["filename"], revision=p["revision"])
+    if file_hash(upstream) != p["sha256"]:
+        raise ValueError("Downloaded pretrained weights failed SHA256 verification")
     shutil.copyfile(upstream, destination)
     dump_json(destination.with_suffix(".json"), {
         "repository": p["repository"], "revision": p["revision"],
