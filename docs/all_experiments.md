@@ -16,6 +16,14 @@ it does not run training on the login node.
 | Exp5B ActiveGCD | ViT-B/16, random versus adaptive queries | One fixed known/novel protocol | 0,1,2 | 6 |
 | Total | | | | **136** |
 
+E6 AGE and E7 DP-BOA-inspired discovery are explicit additions on the experiment
+branch, using this same launcher and environment. The default 136-job selection
+above is unchanged. Select only the six new jobs with
+`bash scripts/submit_all.sh --experiments 6 7 --registry logs/submissions_e6_e7.json`
+(preview); append `--submit` to queue them. Explicitly selecting
+`--experiments 1 2 3 4 5b 6 7` gives 142 jobs. See [E6/E7 instructions](open_world.md)
+for configuration, aggregation, cache checks and the results-only archive.
+
 Each Exp2, Exp3 probe and Exp4 job also evaluates k-NN using the same labelled
 subset as its head. Do not submit extra k-NN jobs. The 45 Exp3 probe jobs reuse
 the 9 adapted backbones, rather than repeating DINO at every label budget.

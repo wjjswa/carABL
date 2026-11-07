@@ -7,7 +7,7 @@ from .common import read_config
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description='carABL experiments 1–4 and 5B; no 5A')
+    parser = argparse.ArgumentParser(description='carABL experiments 1–4, 5B, 6 and 7; no 5A')
     sub = parser.add_subparsers(dest='command', required=True)
     prep = sub.add_parser('prepare')
     prep.add_argument('--root', required=True); prep.add_argument('--out', default='data/prepared')
@@ -80,7 +80,7 @@ def main(argv=None):
                 command += ['--device', args.device]
             if args.output:
                 command += ['--output', args.output]
-            if args.resume and 'activegcd' not in command:
+            if args.resume and not any(name in command for name in ['activegcd', 'open-world']):
                 command += ['--resume']
             import shlex
             print(shlex.join(command), flush=True)
@@ -89,6 +89,8 @@ def main(argv=None):
         return
     if args.command == 'open-world':
         from .open_world import run, aggregate
+        if args.resume:
+            raise ValueError('E6/E7 resume is unsupported; use a fresh output root for a deliberate restart')
         return aggregate(cfg) if args.aggregate else run(cfg, args.method, args.seed)
     if args.command == 'open-set':
         from .open_set import run
@@ -132,6 +134,9 @@ def build_matrix(config_path, cfg, experiments):
         if '5b' in experiments:
             for strategy in ['random', 'adaptive']:
                 commands.append(cmd('activegcd', '--seed', seed, '--strategy', strategy))
+        for experiment in ['6', '7']:
+            if experiment in experiments:
+                commands.append(cmd('open-world', '--seed', seed, '--method', 'e'+experiment))
     return commands
 
 

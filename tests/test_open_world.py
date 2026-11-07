@@ -30,6 +30,13 @@ def test_partition_requires_novel_stream():
     with pytest.raises(ValueError, match="no new category"):
         partition_open_world(_manifest(), ["known_a","known_b"], ["future_c"], 1.0, 0)
 
+
+def test_partition_requires_known_test_examples():
+    frame = _manifest()
+    frame = frame[(frame.split != 'test') | (frame.label == 'future_c')]
+    with pytest.raises(ValueError, match='no known category'):
+        partition_open_world(frame, ['known_a', 'known_b'], [], 1.0, 0)
+
 def _gauss_inputs():
     rng = np.random.default_rng(41)
     x = np.r_[rng.normal([-3.,0.],.20,(25,2)),rng.normal([3.,0.],.20,(25,2))]
@@ -78,3 +85,89 @@ def test_prequential_metrics_do_not_set_novel_semantics():
     assert metrics["test_labels_used_to_train_or_update"] is False
     assert records.loc[1,"prediction_without_test_labels"]=="novel_cluster_001"
     assert "future_c" not in records.loc[1,"prediction_without_test_labels"]
+
+
+def test_niw_moments_and_predecision_score():
+    import math
+    from carrepair.open_world import NIWCategory
+    x, y, _, _ = _gauss_inputs()
+    state = NIWCategory.empty(2)
+    for point in x:
+        state.update(point)
+    assert np.allclose(state.mean, x.mean(0))
+    assert np.allclose(state.scatter, (x-x.mean(0)).T @ (x-x.mean(0)))
+    model = DPBOAOnline(x, y, 2)
+    point = x[0]
+    counts = [s.count for s in model.states]
+    scores = [math.log(s.count) + model._predictive_logpdf(point, s) for s in model.states]
+    birth = math.log(model.alpha) + model._predictive_logpdf(point, NIWCategory.empty(2))
+    slot, event, margin = model.predict_update(point)
+    assert slot == np.argmax(scores) and event == 'known_category'
+    assert margin == pytest.approx(birth - max(scores))
+    assert model.states[slot].count == counts[slot] + 1
+
+
+def test_synthetic_image_pipeline_cache_and_complete_comparison(tmp_path, monkeypatch):
+    """Exercise real image loading/PCA/head/online scoring; no pretrained download."""
+    import json
+    import torch
+    from PIL import Image
+    from carrepair.common import read_config
+    from carrepair import open_world
+    cfg = read_config('configs/default.yaml')
+    cfg.update(data_root=str(tmp_path/'images'), manifest=str(tmp_path/'manifest.csv'),
+               output=str(tmp_path/'outputs'), device='cpu', workers=0, seeds=[0, 1])
+    cfg['open_world'].update(known=['known_a', 'known_b'], exclude=[], pca_dim=3)
+    frame = _manifest()
+    frame.to_csv(cfg['manifest'], index=False)
+    rng = np.random.default_rng(19)
+    for row in frame.itertuples():
+        path = tmp_path/'images'/row.path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(rng.integers(0, 256, (16, 16, 3), dtype=np.uint8)).save(path)
+    class TinyFrozenEncoder(torch.nn.Module):
+        def forward(self, images):
+            assert not self.training and not torch.is_grad_enabled()
+            return torch.cat([images.mean((2, 3)), images.std((2, 3))], dim=1)
+    loads = []
+    def fake_hub(*args, **kwargs):
+        loads.append(args)
+        return TinyFrozenEncoder()
+    monkeypatch.setattr(torch.hub, 'load', fake_hub)
+    open_world.run(cfg, 'e6', 0)
+    with pytest.raises(FileNotFoundError, match='Incomplete'):
+        open_world.aggregate(cfg)
+    for method, seed in [('e7', 0), ('e6', 1), ('e7', 1)]:
+        open_world.run(cfg, method, seed)
+    assert len(loads) == 2  # Both methods share one extraction per seed.
+    destination = open_world.aggregate(cfg)
+    summary = pd.read_csv(destination/'mean_std.csv')
+    assert summary.n_seeds.tolist() == [2, 2]
+    for seed in cfg['seeds']:
+        e6 = pd.read_csv(tmp_path/f'outputs/exp6/seed{seed}/stream_predictions.csv')
+        e7 = pd.read_csv(tmp_path/f'outputs/exp7/seed{seed}/stream_predictions.csv')
+        assert e6.id.tolist() == e7.id.tolist()
+    assert 'label' not in pd.read_csv(tmp_path/'outputs/exp6/seed0/stream_without_labels.csv')
+    # Completed E6/E7 provenance must be accepted by the shared submission CLI.
+    import yaml
+    from carrepair import submit
+    config_path = tmp_path/'config.yaml'
+    config_path.write_text(yaml.safe_dump(cfg))
+    monkeypatch.setattr(submit, '__file__', str(tmp_path/'carrepair/submit.py'))
+    monkeypatch.chdir(tmp_path)
+    submit.main(['--config', str(config_path), '--experiments', '6', '7',
+                 '--registry', str(tmp_path/'registry.json')])
+    plan = pd.read_csv(tmp_path/'logs/experiment_plan.csv')
+    assert plan.state.tolist() == ['SKIP_COMPLETED'] * 4
+    with pytest.raises(FileExistsError):
+        open_world.run(cfg, 'e6', 0)
+    protocol_path = tmp_path/'outputs/exp7/seed0/protocol.json'
+    protocol = json.loads(protocol_path.read_text())
+    protocol['stream_order_sha256'] = 'changed'
+    protocol_path.write_text(json.dumps(protocol))
+    with pytest.raises(ValueError, match='input or runtime mismatch'):
+        open_world.aggregate(cfg)
+    support, val, stream = open_world.partition_open_world(frame, ['known_a', 'known_b'], [], .8, 0)
+    with pytest.raises(RuntimeError, match='cache mismatch'):
+        open_world.load_or_extract_features({**cfg, 'data_root': str(tmp_path/'different')},
+            0, support, val, stream, cfg['open_world']['dino_repo'])

@@ -13,6 +13,8 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import fcntl
+import hashlib
+import importlib.metadata
 import json
 import math
 from pathlib import Path
@@ -55,6 +57,8 @@ def partition_open_world(manifest, known, exclude, fraction, seed):
         raise ValueError('Every known class needs support and validation examples')
     if not (~stream.label.isin(known)).any():
         raise ValueError('The held-out stream contains no new category')
+    if not stream.label.isin(known).any():
+        raise ValueError('The held-out stream contains no known category')
     # Both image hashes and near-duplicate group splits are checked by read_manifest.
     if (set(support.id) & set(stream.id)) or (set(val.id) & set(stream.id)):
         raise ValueError('Train/validation and test image overlap')
@@ -180,8 +184,8 @@ class NIWCategory:
 class DPBOAOnline:
     """NIW posterior-predictive birth-or-assign, adapted from ECCV 2026 DP-BOA.
 
-    Official author source was not verified available when this code was written.
-    Hyperparameters are explicit, not claimed to reproduce the paper's tuning.
+    This independent baseline uses fixed priors rather than the author's
+    empirical-Bayes calibration. It is not the official implementation.
     """
 
     def __init__(self, support, support_y, count_known, alpha=10.,
@@ -331,9 +335,14 @@ def load_or_extract_features(cfg, seed, support, val, stream, dino_ref):
     root.mkdir(parents=True, exist_ok=True)
     cache = root / ('seed%d.npz' % seed)
     meta = {
+        'cache_version': 2,
         'manifest_sha256': file_hash(cfg['manifest']),
+        'data_root': str(Path(cfg['data_root']).resolve()),
         'dino_ref': dino_ref,
         'ids': [list(map(str, f.id)) for f in (support, val, stream)],
+        'paths': [list(map(str, f.path)) for f in (support, val, stream)],
+        'versions': {name: importlib.metadata.version(name)
+                     for name in ['torch', 'torchvision', 'numpy', 'Pillow']},
         'image_size': 224,
         'imagenet_normalize': True,
     }
@@ -343,7 +352,7 @@ def load_or_extract_features(cfg, seed, support, val, stream, dino_ref):
             with np.load(cache, allow_pickle=False) as z:
                 if json.loads(str(z['meta'])) == meta:
                     return z['support'], z['val'], z['stream']
-            raise RuntimeError('Feature cache mismatch: remove or rename %s before rerun' % cache)
+            raise RuntimeError('Feature cache mismatch: %s. Use a fresh output root; keep earlier artifacts.' % cache)
         print('Extracting DINO ViT-B/16 features; first run may download torch.hub weights.', flush=True)
         backbone = torch.hub.load(dino_ref, 'dino_vitb16', trust_repo=True).to(cfg['device']).eval()
         backbone.requires_grad_(False)
@@ -371,7 +380,7 @@ def run(cfg, method, seed):
     if target.exists():
         raise FileExistsError('Output already exists: %s. Do not overwrite an earlier run.' % target)
     target.mkdir(parents=True)
-    provenance({**cfg, 'open_world_method': method, 'run_seed': seed}, target)
+    provenance(cfg, target)
     support[['id', 'path', 'label', 'group', 'split']].to_csv(target / 'known_support.csv', index=False)
     val[['id', 'path', 'label', 'group', 'split']].to_csv(target / 'known_validation.csv', index=False)
     # Withheld test labels are intentionally absent from the streaming input file.
@@ -430,7 +439,6 @@ def run(cfg, method, seed):
                    'pca_components': int(scaler.n_components_)})
     output.to_csv(target / 'stream_predictions.csv', index=False)
     categories.to_csv(target / 'per_category.csv', index=False)
-    dump_json(target / 'metrics.json', result)
     dump_json(target / 'offline_mapping_EVALUATION_ONLY.json',
               {str(k): str(v) for k, v in offline_map.items()})
     dump_json(target / 'protocol.json', {
@@ -438,12 +446,22 @@ def run(cfg, method, seed):
         'excluded_from_stream': settings.get('exclude', ['unknown']),
         'initial_support_images': len(support), 'validation_known_images': len(val),
         'stream_test_images': len(stream), 'stream_shuffle_seed': seed,
+        'stream_order_sha256': hashlib.sha256(
+            json.dumps(stream.iloc[order].id.astype(str).tolist()).encode()).hexdigest(),
+        'feature_cache_sha256': file_hash(Path(cfg['output']) / 'open_world_feature_cache' / ('seed%d.npz' % seed)),
         'new_class_count_given_to_algorithm': None,
         'training_images_from_novel_categories': 0,
         'test_truth_used_during_online_decision': False,
         'adaptation_not_faithful_official_reproduction': True,
         'settings': settings,
+        'versions': {name: importlib.metadata.version(name)
+                     for name in ['scipy', 'scikit-learn']},
     })
+    # The submission planner treats metrics.json as the completion marker.
+    # Publish it atomically only after every other artifact has been written.
+    marker = target / 'metrics.json.tmp'
+    dump_json(marker, result)
+    marker.replace(target / 'metrics.json')
     print(json.dumps(result, indent=2))
     print('Results saved to', target, flush=True)
     return result
@@ -452,12 +470,45 @@ def run(cfg, method, seed):
 def aggregate(cfg):
     root = Path(cfg['output'])
     all_rows = []
+    seeds = cfg['seeds']
+    if not seeds or len(seeds) != len(set(seeds)):
+        raise ValueError('Configure distinct, nonempty seeds for aggregation')
+    missing = []
+    runs = []
     for method, folder in [('e6', 'exp6'), ('e7', 'exp7')]:
-        for path in sorted((root / folder).glob('seed*/metrics.json')):
-            row = json.loads(path.read_text())
-            all_rows.append(row)
-    if not all_rows:
-        raise FileNotFoundError('No E6/E7 metrics.json found')
+        for seed in seeds:
+            directory = root / folder / ('seed%d' % seed)
+            for filename in ['metrics.json', 'protocol.json', 'provenance.json']:
+                if not (directory / filename).is_file():
+                    missing.append(str(directory / filename))
+            runs.append((method, seed, directory))
+    if missing:
+        raise FileNotFoundError('Incomplete E6/E7 comparison; missing: ' + ', '.join(missing))
+    manifest_hashes, paired_protocols = set(), {}
+    for method, seed, directory in runs:
+        row = json.loads((directory / 'metrics.json').read_text())
+        protocol = json.loads((directory / 'protocol.json').read_text())
+        record = json.loads((directory / 'provenance.json').read_text())
+        previous_cfg = {k: v for k, v in record['config'].items()
+                        if k not in {'open_world_method', 'run_seed'}}
+        if previous_cfg != cfg:
+            raise ValueError(f'{directory}: configuration mismatch; do not mix protocols')
+        if row['method'] != method or row['seed'] != seed:
+            raise ValueError(f'{directory}: method/seed mismatch')
+        manifest_hashes.add(record['manifest_sha256'])
+        if Path(cfg['manifest']).is_file() and record['manifest_sha256'] != file_hash(cfg['manifest']):
+            raise ValueError(f'{directory}: manifest changed')
+        # Seeds may reorder the stream; each method must share its seed's inputs.
+        keys = ['stream_order_sha256', 'feature_cache_sha256', 'versions']
+        if any(key not in protocol for key in keys):
+            raise ValueError(f'{directory}: missing comparison fingerprints; keep earlier runs separate')
+        paired = {key: protocol[key] for key in keys}
+        if seed in paired_protocols and paired_protocols[seed] != paired:
+            raise ValueError(f'Seed {seed}: E6/E7 input or runtime mismatch')
+        paired_protocols[seed] = paired
+        all_rows.append(row)
+    if len(manifest_hashes) != 1:
+        raise ValueError('E6/E7 runs used different manifests')
     frame = pd.DataFrame(all_rows)
     destination = root / 'open_world_comparison'
     destination.mkdir(parents=True, exist_ok=True)
