@@ -308,6 +308,9 @@ def train_one(cfg, variant, seed, resume=False):
         if start and early_state is None:
             raise ValueError("Old checkpoint lacks early-stopping state; start in a fresh output directory")
         print(f"Resuming {variant} seed={seed} from epoch {start}", flush=True)
+        if early_state["bad_epochs"] >= cfg["early_stopping"]["patience"]:
+            print("E8 early stopping was already reached; finalizing test only.", flush=True)
+            start = int(cfg["epochs"])
     train_eval = loader(train_frame, cfg, labels)
     validation = loader(val_frame, cfg, labels)
     test_eval = loader(test_frame, cfg, labels)
