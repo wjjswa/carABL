@@ -6,7 +6,7 @@
 #SBATCH --mem=40G
 #SBATCH --time=3-00:00:00
 set -euo pipefail
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECT_ROOT="$(pwd)"  # sbatch --chdir is set to the worktree root; script may be spooled elsewhere
 cd "$PROJECT_ROOT"
 source scripts/artemis_env.sh
 python - <<'PY'
