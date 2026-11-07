@@ -443,6 +443,8 @@ def train_one(cfg, variant, seed, resume=False):
         best_score = float(checkpoint["best_score"])
         best_epoch = checkpoint["best_epoch"]
         bad_epochs = int(checkpoint["bad_epochs"])
+        if bad_epochs >= int(cfg["early_stopping"]["patience"]):
+            start = int(cfg["epochs"])  # already early-stopped; only finalize metrics
     for epoch in range(start, int(cfg["epochs"])):
         seed_all(seed * 100000 + epoch + 1)
         if frozen:
