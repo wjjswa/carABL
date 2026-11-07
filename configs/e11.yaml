@@ -1,0 +1,32 @@
+# E11: CarDDv2 full fine-tuned damage-first six-class root + FROZEN E9-B expert.
+# Existing immutable group-disjoint eight-class manifest. No re-splitting.
+manifest: data/prepared/manifest.csv
+data_root: data/kaggle
+output: outputs/e11
+device: cuda
+workers: 4
+batch_size: 32
+image_size: 224          # Matches previous Experiment 2 YOLOv8s transform.
+checkpoint: weights/cardd-v2.pt   # Original CarDD YOLOv8s-seg v2.
+epochs: 300              # MAXIMUM; stop early if validation macro-F1 stagnates.
+early_stopping:
+  monitor: val_macro_f1
+  patience: 30
+  min_delta: 0.001
+seeds: [0, 1, 2]
+lr: 0.0001               # Trainable CarDD backbone.
+head_lr: 0.001           # Trainable new six-class head.
+weight_decay: 0.0001
+# E9-B checkpoints are reused only for inference; NO retraining.
+expert:
+  directory: outputs/e9/binary
+  source_checkpoint: weights/carparts/majorburn_yolo11_carparts_best.pt
+  source_sha256: 6759cf983e0bdefaa95d2d3fc6b37f89d3718a319c08617c3c7a339e18fdc3cd
+  expected_parts: 23
+  image_size: 384
+overfitting:
+  window: 15
+  min_train_loss_improvement: 0.02
+  min_val_loss_worsening: 0.02
+  min_val_train_loss_ratio: 1.30
+  min_accuracy_gap: 0.12
