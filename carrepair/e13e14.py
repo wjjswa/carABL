@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
-from PIL import ImageOps
+from PIL import Image, ImageOps
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score
 from torch import nn
 from torch.nn import functional as F
@@ -62,7 +62,7 @@ def cascade_dir(cfg, variant, seed):
 
 def _padded(image, size, fill=(114, 114, 114)):
     return ImageOps.pad(image.convert("RGB"), (size, size),
-                        method=ImageOps.Resampling.BILINEAR,
+                        method=Image.Resampling.BILINEAR,
                         color=fill, centering=(0.5, 0.5))
 
 
