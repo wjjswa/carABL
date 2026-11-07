@@ -7,7 +7,7 @@ import torch
 from torch import nn
 
 from carrepair.common import read_config
-from carrepair.e8 import class_names, select_data, detect_overfitting, PartPretrainedClassifier
+from carrepair.e8 import class_names, select_data, detect_overfitting, early_stopping_step, PartPretrainedClassifier
 from carrepair.e8_submit import jobs
 
 
@@ -58,6 +58,8 @@ def test_overfitting_warning_is_observational():
 def test_pinned_pretrained_full_finetuning_configuration():
     cfg = read_config("configs/e8.yaml")
     assert cfg["epochs"] == 300 and cfg["seeds"] == [0, 1, 2]
+    assert cfg["early_stopping"]["patience"] == 30
+    assert cfg["early_stopping"]["monitor"] == "val_macro_f1"
     assert cfg["output"] == "outputs/e8"
     assert cfg["pretrained"]["repository"] == "Majorburn/yolov11-carparts-seg"
     assert len(cfg["pretrained"]["revision"]) == 40
@@ -86,3 +88,26 @@ def test_part_backbone_transfer_and_new_head(monkeypatch, tmp_path):
     assert model(torch.randn(2, 3, 64, 64)).shape == (2, 7)
     assert all(p.requires_grad for p in model.backbone.parameters())
     assert len(list(model.backbone.children())) == 3
+
+
+def test_early_stopping_patience_30_and_resume_state():
+    cfg = read_config("configs/e8.yaml")
+    state, stopped = early_stopping_step(.70, None, cfg, 1)
+    assert not stopped and state["bad_epochs"] == 0
+    for epoch in range(2, 31):
+        state, stopped = early_stopping_step(.70, state, cfg, epoch)
+        assert not stopped
+    state, stopped = early_stopping_step(.70, state, cfg, 31)
+    assert stopped and state["bad_epochs"] == 30
+    assert state["last_significant_epoch"] == 1
+    # Improvement beyond min_delta resets the exact same persisted state.
+    state, stopped = early_stopping_step(.705, state, cfg, 32)
+    assert not stopped and state["bad_epochs"] == 0
+    assert state["last_significant_epoch"] == 32
+
+
+def test_early_stopping_insignificant_gain_does_not_reset():
+    cfg = read_config("configs/e8.yaml")
+    state, _ = early_stopping_step(.700, None, cfg, 1)
+    state, stopped = early_stopping_step(.7005, state, cfg, 2)
+    assert not stopped and state["bad_epochs"] == 1
