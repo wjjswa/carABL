@@ -210,6 +210,8 @@ def model_from_pretrained(cfg, task):
 def early_stopping_step(score, state, cfg, epoch):
     """Track validation Macro-F1 patience separately from exact-max best.pt."""
     rule = cfg["early_stopping"]
+    if rule.get("monitor") != "val_macro_f1":
+        raise ValueError("E9 supports early-stopping monitor=val_macro_f1 only")
     patience = int(rule["patience"])
     min_delta = float(rule.get("min_delta", 0.0))
     if patience < 1 or min_delta < 0:
