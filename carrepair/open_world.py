@@ -256,7 +256,7 @@ def offline_hungarian(true_labels, predicted):
     return aligned, assignment
 
 
-def evaluate_stream(stream, order, features, predictions, events, scores, known):
+def evaluate_stream(stream, order, predictions, events, scores, known):
     """Only this function reads held-out stream labels."""
     stream = stream.iloc[order].reset_index(drop=True)
     truth = stream.label.astype(str).to_numpy()
@@ -305,17 +305,6 @@ def evaluate_stream(stream, order, features, predictions, events, scores, known)
     per_image['decision_score'] = scores
     per_image['offline_hungarian_prediction_evaluation_only'] = aligned
     return result, pd.DataFrame(rows), per_image, mapping
-
-
-def _feature_batch(frame, cfg, backbone):
-    import torch
-    items = []
-    with torch.no_grad():
-        for batch in loader(frame, {**cfg, 'image_size': 224}, [], train=False,
-                            transform=None, label_free=True):
-            # loader's default transform has no ImageNet normalization; use an
-            # explicit normalized loader below instead.
-            raise AssertionError('Use normalized image features only')
 
 
 def _extract_features(frame, cfg, backbone):
@@ -424,14 +413,14 @@ def run(cfg, method, seed):
     predictions, events, scores = [], [], []
     for index in order:
         z = stream_z[index]
-        prob = head.predict_proba(features.reshape(1, -1))[0] if False else head.predict_proba(test_features[index:index+1])[0]
+        prob = head.predict_proba(test_features[index:index+1])[0]
         # No ground-truth field is passed to either online method.
         prediction, event, score = online.predict_update(z, prob)
         predictions.append(int(prediction))
         events.append(event)
         scores.append(float(score))
     result, categories, output, offline_map = evaluate_stream(
-        stream, order, test_features, predictions, events, scores, known)
+        stream, order, predictions, events, scores, known)
     result.update({'method': method, 'seed': seed, 'known_class_count_given': len(known),
                    'new_class_count_given_to_algorithm': None,
                    'discovered_cluster_objects': int(online.discovered),
