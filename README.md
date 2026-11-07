@@ -1,3 +1,13 @@
+## New: E6 AGE and E7 DP-BOA online category discovery
+
+E6 and E7 test **no pre-specified new-class count** with four known-only support categories and a prequential mixed-class held-out test stream. Both are adapted research baselines (E7 is independent paper-inspired code, not official reproduction). Results are **not yet available** until Artemis runs complete. See [protocol, limitations, results and Artemis submission](docs/open_world.md).
+
+```bash
+bash scripts/submit_open_world.sh
+# after all jobs complete:
+python -m carrepair open-world --aggregate
+```
+
 # carABL — vehicle damage experiments
 
 Remote-training code and a Streamlit results viewer for the ABL interview project.
