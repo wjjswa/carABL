@@ -1,0 +1,75 @@
+# E13-B/C and E14-A/B/C/D, exact original E11 train/val/test manifests.
+# On Artemis: create configs/e13e14_artemis.yaml from configs/e11_artemis.yaml.
+manifest: data/prepared/manifest.csv
+data_root: data/kaggle
+output: outputs/e13e14
+device: cuda
+workers: 4
+batch_size: 16
+epochs: 300
+seeds: [0, 1, 2]
+lr: 0.0001
+head_lr: 0.001
+weight_decay: 0.0001
+early_stopping:
+  monitor: val_macro_f1
+  patience: 30
+  min_delta: 0.001
+
+# Original CarDD v2 source for E13-B/C; never train on the test set.
+checkpoint: weights/cardd-v2.pt
+
+# Unmodified E9-B expert, exactly matching the seed and original image IDs.
+expert:
+  directory: outputs/e9/binary
+  source_checkpoint: weights/carparts/majorburn_yolo11_carparts_best.pt
+  source_sha256: 6759cf983e0bdefaa95d2d3fc6b37f89d3718a319c08617c3c7a339e18fdc3cd
+  expected_parts: 23
+  image_size: 384
+
+variants:
+  e13b:
+    kind: cardd
+    image_size: 384
+    augmentation: pad
+    backbone_lr: 0.0001
+  e13c:
+    kind: cardd
+    image_size: 384
+    augmentation: mild
+    backbone_lr: 0.0001
+  e14a:
+    kind: hf
+    family: dinov3
+    mode: frozen
+    image_size: 224
+    pretrained_repo: facebook/dinov3-vits16-pretrain-lvd1689m
+    pretrained_dir: weights/hf/dinov3-vits16
+    unfreeze_last_blocks: 0
+  e14b:
+    kind: hf
+    family: dinov3
+    mode: partial
+    image_size: 224
+    pretrained_repo: facebook/dinov3-vits16-pretrain-lvd1689m
+    pretrained_dir: weights/hf/dinov3-vits16
+    unfreeze_last_blocks: 4
+    backbone_lr: 0.000015
+  e14c:
+    kind: hf
+    family: dinov3
+    mode: partial
+    image_size: 224
+    pretrained_repo: facebook/dinov3-vitb16-pretrain-lvd1689m
+    pretrained_dir: weights/hf/dinov3-vitb16
+    unfreeze_last_blocks: 4
+    backbone_lr: 0.00001
+  e14d:
+    kind: hf
+    family: siglip2
+    mode: partial
+    image_size: 224
+    pretrained_repo: google/siglip2-base-patch16-224
+    pretrained_dir: weights/hf/siglip2-base-patch16-224
+    unfreeze_last_blocks: 4
+    backbone_lr: 0.00001
