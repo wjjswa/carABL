@@ -29,7 +29,7 @@ from torchvision import transforms as T
 from .common import atomic_save, dump_json, file_hash, read_config, seed_all
 from .data import open_image
 from .e11 import (
-    ROOT, DIRECT, EIGHT, ExpertImages, build_root, error_analysis,
+    ROOT, DIRECT, EIGHT, BINARY, ExpertImages, build_root, error_analysis,
     hard_route, joint_probabilities, load_expert, partitions, root_label,
     score_predictions,
 )
@@ -66,9 +66,18 @@ def _padded(image, size, fill=(114, 114, 114)):
                         color=fill, centering=(0.5, 0.5))
 
 
+class PadSquare:
+    """Pickle-safe resizing callable for multiprocess DataLoader workers."""
+    def __init__(self, size):
+        self.size = int(size)
+
+    def __call__(self, image):
+        return _padded(image, self.size)
+
+
 def cardd_transform(size, train=False, augmentation="pad"):
     """Never crops away a damage region; E13-C adds gentle geometric jitter."""
-    ops = [T.Lambda(lambda img: _padded(img, size))]
+    ops = [PadSquare(size)]
     if train:
         ops.append(T.RandomHorizontalFlip(p=0.5))
         if augmentation == "mild":
@@ -559,8 +568,7 @@ def evaluate_one(cfg, variant, seed):
     trace["actual_root"] = [root_label(n) for n in test.label]
     trace["predicted_root"] = [ROOT[i] for i in predicted_root]
     trace["root_confidence"] = root_probs.max(axis=1)
-    trace["predicted_part"] = ["bumper" if i == 0 else "door"
-                               for i in part_probs.argmax(axis=1)]
+    trace["predicted_part"] = [BINARY[i] for i in part_probs.argmax(axis=1)]
     trace["hard_prediction"] = [EIGHT[i] for i in hard]
     trace["soft_prediction"] = [EIGHT[i] for i in soft]
     trace["hard_correct"] = hard == true_eight
@@ -570,8 +578,8 @@ def evaluate_one(cfg, variant, seed):
         np.where(hard != true_eight, "expert_error", "correct"))
     for i, name in enumerate(ROOT):
         trace[f"p_{name}"] = root_probs[:, i]
-    trace["p_bumper"] = part_probs[:, 0]
-    trace["p_door"] = part_probs[:, 1]
+    trace["p_bumper"] = part_probs[:, BINARY.index("bumper")]
+    trace["p_door"] = part_probs[:, BINARY.index("door")]
     trace.to_csv(out / "test_predictions.csv", index=False)
     np.savez_compressed(out / "probabilities.npz",
                         root=root_probs, bumper_door=part_probs,
