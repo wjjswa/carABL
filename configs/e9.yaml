@@ -6,7 +6,11 @@ device: cuda
 workers: 4
 batch_size: 16
 image_size: 384
-epochs: 300
+epochs: 300  # Maximum; early stop on stagnant validation Macro-F1.
+early_stopping:
+  monitor: val_macro_f1
+  patience: 30
+  min_delta: 0.001
 seeds: [0, 1, 2]
 lr: 0.0001
 head_lr: 0.001
