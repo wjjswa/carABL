@@ -365,6 +365,20 @@ def _provenance(cfg, variant, seed, source_sha):
     }
 
 
+def fixed_partitions(cfg):
+    """Require E11's exact original 1050/229/226 train/val/test protocol."""
+    frames = partitions(cfg)
+    sizes = tuple(len(frame) for frame in frames)
+    if sizes != (1050, 229, 226):
+        raise ValueError(f"Wrong split sizes {sizes}; expected (1050, 229, 226)")
+    for frame in frames:
+        if frame.id.duplicated().any():
+            raise ValueError("Duplicate image ID inside an E11 split")
+    if len(set().union(*(set(frame.id) for frame in frames))) != sum(sizes):
+        raise ValueError("E11 Train/Val/Test image IDs overlap")
+    return frames
+
+
 def train_one(cfg, variant, seed, resume=False):
     verify_protocol(cfg, variant)
     if seed not in cfg["seeds"]:
@@ -372,7 +386,7 @@ def train_one(cfg, variant, seed, resume=False):
     seed_all(seed)
     source_sha = source_signature(cfg, variant)
     fingerprint = _provenance(cfg, variant, seed, source_sha)
-    train_frame, val_frame, test_frame = partitions(cfg)
+    train_frame, val_frame, test_frame = fixed_partitions(cfg)
     assert all(set(ROOT) == set(map(root_label, frame.label))
                for frame in (train_frame, val_frame, test_frame))
     out = root_dir(cfg, variant, seed)
@@ -539,7 +553,7 @@ def evaluate_one(cfg, variant, seed):
             or checkpoint["source_sha256"] != expected_sha):
         raise ValueError("Trained root checkpoint does not match input manifest/model")
     seed_all(seed)
-    _, _, test = partitions(cfg)
+    _, _, test = fixed_partitions(cfg)
     root_model = build_model(cfg, variant).to(cfg["device"]).eval()
     _load_trained_state(root_model, checkpoint)
     measured, truth_root, predicted_root, root_probs = measure(
