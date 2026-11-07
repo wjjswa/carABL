@@ -165,6 +165,12 @@ def evaluate(model, batches, task, device, details=False):
         result["root_accuracy"] = float(accuracy_score(true_root, root_pred))
         result["root_confusion_matrix"] = confusion_matrix(true_root, root_pred,
                                                            labels=[0, 1, 2]).tolist()
+        # Comparable with E9-A/B: original four bumper/door-damage test labels.
+        bd = true_root != 2
+        result["root_bumper_door_accuracy"] = float(accuracy_score(true_root[bd], root_pred[bd]))
+        # An incorrect routing to 'other' counts as an error in this 3-column matrix.
+        result["root_bumper_door_confusion_with_other"] = confusion_matrix(
+            true_root[bd], root_pred[bd], labels=[0, 1, 2]).tolist()
         # Oracle-parent conditional head scores are *diagnostics*, not deployed 8-class scores.
         masks = {
             "bumper": true_root == 0,
@@ -177,6 +183,8 @@ def evaluate(model, batches, task, device, details=False):
                                   for i in true[mask]])
             result[f"{part}_damage_accuracy_given_true_parent"] = float(
                 accuracy_score(y_damage, np.array(damage_predictions)[mask]))
+            result[f"{part}_damage_confusion_given_true_parent"] = confusion_matrix(
+                y_damage, np.array(damage_predictions)[mask], labels=[0, 1]).tolist()
         mask = masks["other"]
         y_other = np.array([OTHER.index(EIGHT[i]) for i in true[mask]])
         result["other_subtype_accuracy_given_true_parent"] = float(
@@ -452,7 +460,8 @@ def aggregate(cfg):
                          "test_macro_f1": report["macro_f1"],
                          "best_epoch": record["best_epoch"],
                          "overfitting_warning_count": len(record["overfitting_warning_epochs"]),
-                         "root_accuracy": report.get("root_accuracy")})
+                         "root_accuracy": report.get("root_accuracy"),
+                         "root_bumper_door_accuracy": report.get("root_bumper_door_accuracy")})
             for label in record["classes"]:
                 m = report["per_class"][label]
                 per_cat.append({"task": task, "seed": seed, "class": label,
@@ -461,7 +470,8 @@ def aggregate(cfg):
     root.mkdir(parents=True, exist_ok=True)
     frame = pd.DataFrame(rows)
     frame.to_csv(root / "trained_per_seed.csv", index=False)
-    summary = frame.groupby("task")[["test_accuracy", "test_macro_f1", "root_accuracy"]].agg(["mean", "std"])
+    summary = frame.groupby("task")[["test_accuracy", "test_macro_f1", "root_accuracy",
+                                     "root_bumper_door_accuracy"]].agg(["mean", "std"])
     summary.columns = ["_".join(c) for c in summary.columns]
     summary["n_seeds"] = frame.groupby("task").seed.nunique()
     summary.to_csv(root / "trained_mean_std.csv")
