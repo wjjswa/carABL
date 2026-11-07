@@ -2,7 +2,7 @@
 
 Two separate experiments: eight image-level damage classes including 'unknown',
 and seven named classes with 'unknown' completely withheld. Same immutable
-manifest, all eligible training images, 300 epochs, three seeds, no early stopping.
+manifest, all eligible training images, up to 300 epochs, three seeds, and early stopping.
 Run only on an allocated Artemis GPU. This does not run part-mask inference:
 it transfers learned part-aware backbone weights to an image classifier.
 """
@@ -197,6 +197,28 @@ def detect_overfitting(history, config):
     )
 
 
+def early_stopping_step(score, state, cfg, epoch):
+    """Track validation Macro-F1 patience independently of the best.pt selector.
+
+    An improvement must exceed min_delta since the last significant checkpoint
+    to reset patience. The separate best.pt always tracks the true max F1.
+    """
+    p = cfg["early_stopping"]
+    patience = int(p["patience"])
+    min_delta = float(p.get("min_delta", 0.0))
+    if patience < 1 or min_delta < 0:
+        raise ValueError("early_stopping patience must be positive and min_delta nonnegative")
+    if state is None:
+        state = {"reference_score": None, "bad_epochs": 0, "last_significant_epoch": None}
+    reference = state["reference_score"]
+    if reference is None or float(score) > reference + min_delta:
+        state = {"reference_score": float(score), "bad_epochs": 0,
+                 "last_significant_epoch": int(epoch)}
+    else:
+        state = {**state, "bad_epochs": int(state["bad_epochs"]) + 1}
+    return state, state["bad_epochs"] >= patience
+
+
 def _run_provenance(cfg, variant, seed):
     return {
         "variant": variant, "seed": int(seed), "config": cfg,
@@ -268,6 +290,7 @@ def train_one(cfg, variant, seed, resume=False):
     ], weight_decay=float(cfg["weight_decay"]))
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, int(cfg["epochs"]))
     history, start, best_score, best_epoch = [], 0, -1.0, None
+    early_state = None
     last_path = directory / "last.pt"
     best_path = directory / "best.pt"
     if resume and last_path.exists():
@@ -281,6 +304,9 @@ def train_one(cfg, variant, seed, resume=False):
         start = int(state["epoch"])
         best_score = float(state["best_score"])
         best_epoch = state["best_epoch"]
+        early_state = state.get("early_stopping_state")
+        if start and early_state is None:
+            raise ValueError("Old checkpoint lacks early-stopping state; start in a fresh output directory")
         print(f"Resuming {variant} seed={seed} from epoch {start}", flush=True)
     train_eval = loader(train_frame, cfg, labels)
     validation = loader(val_frame, cfg, labels)
@@ -322,6 +348,10 @@ def train_one(cfg, variant, seed, resume=False):
         }
         history.append(item)
         item["overfitting_warning"] = detect_overfitting(history, cfg)
+        early_state, should_stop = early_stopping_step(
+            v["macro_f1"], early_state, cfg, epoch + 1)
+        item["early_stop_bad_epochs"] = early_state["bad_epochs"]
+        item["early_stop_triggered"] = should_stop
         if v["macro_f1"] > best_score:
             best_score, best_epoch = v["macro_f1"], epoch+1
             atomic_save({
@@ -334,6 +364,7 @@ def train_one(cfg, variant, seed, resume=False):
             "scheduler": scheduler.state_dict(), "history": history,
             "epoch": epoch+1, "best_score": best_score,
             "best_epoch": best_epoch, "variant": variant, "seed": seed,
+            "early_stopping_state": early_state,
         }, last_path)
         pd.DataFrame(history).to_csv(directory / "history.csv", index=False)
         tag = " WARNING:OVERFITTING" if item["overfitting_warning"] else ""
@@ -341,6 +372,12 @@ def train_one(cfg, variant, seed, resume=False):
               f"train loss={t['loss']:.4f}, val loss={v['loss']:.4f}, "
               f"train acc={t['accuracy']:.3f}, val acc={v['accuracy']:.3f}, "
               f"val macroF1={v['macro_f1']:.3f}{tag}", flush=True)
+        if should_stop:
+            print(f"E8 EARLY STOP {variant} seed{seed}: patience="
+                  f"{cfg['early_stopping']['patience']}, epoch={epoch+1}, "
+                  f"best_epoch={best_epoch}, best_validation_macro_F1={best_score:.4f}",
+                  flush=True)
+            break
     if not best_path.is_file():
         raise RuntimeError("Best validation checkpoint not found")
     best = torch.load(best_path, map_location="cpu", weights_only=False)
@@ -365,11 +402,20 @@ def train_one(cfg, variant, seed, resume=False):
         "warning_count": len(warnings), "first_warning_epoch": warnings[0] if warnings else None,
         "warning_epochs": warnings,
         "last_train_val_accuracy_gap": history[-1]["accuracy_gap"],
-        "notes": "Monitoring only; no early stop; test evaluated after selection by validation.",
+        "notes": "Overfitting warnings are diagnostic; validation Macro-F1 patience controls early stopping.",
     }
     dump_json(directory / "overfitting_summary.json", overfit)
     summary = {
         "variant": variant, "seed": seed, "epochs_completed": len(history),
+        "early_stopping": {
+            "enabled": True, "patience": int(cfg["early_stopping"]["patience"]),
+            "min_delta": float(cfg["early_stopping"].get("min_delta", 0.0)),
+            "stopped_early": len(history) < int(cfg["epochs"]),
+            "stop_epoch": len(history) if len(history) < int(cfg["epochs"]) else None,
+            "bad_epochs": early_state["bad_epochs"],
+            "last_significant_epoch": early_state["last_significant_epoch"],
+            "reason": "patience_exhausted" if len(history) < int(cfg["epochs"]) else "max_epochs",
+        },
         "train_count": len(train_frame), "val_count": len(val_frame),
         "test_count": len(test_frame), "classes": labels,
         "pretrained_repository": provenance["pretrained_repository"],
@@ -398,8 +444,10 @@ def aggregate(cfg):
             if not meta_path.is_file() or not prov_path.is_file():
                 raise FileNotFoundError(f"Missing completed E8 run: {path}")
             m = json.loads(meta_path.read_text())
-            if m["variant"] != variant or m["seed"] != seed or m["epochs_completed"] != cfg["epochs"]:
-                raise ValueError(f"E8 results mismatch in {path}")
+            if (m["variant"] != variant or m["seed"] != seed or
+                not 1 <= m["epochs_completed"] <= cfg["epochs"] or
+                m.get("early_stopping", {}).get("patience") != cfg["early_stopping"]["patience"]):
+                raise ValueError(f"E8 results mismatch or incomplete in {path}")
             if json.loads(prov_path.read_text()) != _run_provenance(cfg, variant, seed):
                 raise ValueError(f"E8 provenance changed: {path}")
             hashes.add(m["pretrained_sha256"])
@@ -408,6 +456,8 @@ def aggregate(cfg):
                 "test_macro_f1": m["test"]["macro_f1"],
                 "best_validation_macro_f1": m["best_validation_macro_f1"],
                 "best_epoch": m["best_epoch"],
+                "epochs_completed": m["epochs_completed"],
+                "stopped_early": m["early_stopping"]["stopped_early"],
                 "overfitting_warning_count": m["overfitting"]["warning_count"],
             })
             for label in m["classes"]:
@@ -425,7 +475,8 @@ def aggregate(cfg):
     summary.to_csv(root / "per_seed.csv", index=False)
     cats.to_csv(root / "per_class_per_seed.csv", index=False)
     stats = summary.groupby("variant")[["test_accuracy", "test_macro_f1",
-                                         "best_validation_macro_f1"]].agg(["mean", "std"])
+                                         "best_validation_macro_f1",
+                                         "epochs_completed", "best_epoch"]].agg(["mean", "std"])
     stats.columns = ["_".join(name) for name in stats.columns]
     stats["n_seeds"] = summary.groupby("variant").seed.nunique()
     stats.to_csv(root / "mean_std.csv")
