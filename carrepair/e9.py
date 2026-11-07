@@ -207,6 +207,24 @@ def model_from_pretrained(cfg, task):
                                   int(p["expected_classes"]))
 
 
+def early_stopping_step(score, state, cfg, epoch):
+    """Track validation Macro-F1 patience separately from exact-max best.pt."""
+    rule = cfg["early_stopping"]
+    patience = int(rule["patience"])
+    min_delta = float(rule.get("min_delta", 0.0))
+    if patience < 1 or min_delta < 0:
+        raise ValueError("Invalid early stopping patience or min_delta")
+    if state is None:
+        state = {"reference_score": None, "bad_epochs": 0, "last_significant_epoch": None}
+    reference = state["reference_score"]
+    if reference is None or float(score) > reference + min_delta:
+        state = {"reference_score": float(score), "bad_epochs": 0,
+                 "last_significant_epoch": int(epoch)}
+    else:
+        state = {**state, "bad_epochs": int(state["bad_epochs"]) + 1}
+    return state, state["bad_epochs"] >= patience
+
+
 def source_provenance(cfg, task, seed):
     return {
         "config": cfg, "task": task, "seed": int(seed),
@@ -252,6 +270,7 @@ def train(cfg, task, seed, resume=False):
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, int(cfg["epochs"]))
     last, best = output / "last.pt", output / "best.pt"
     history, start, best_score, best_epoch = [], 0, -1., None
+    early_state = None
     if resume and last.exists():
         state = torch.load(last, map_location="cpu", weights_only=False)
         if (state["task"], state["seed"]) != (task, seed):
@@ -261,6 +280,9 @@ def train(cfg, task, seed, resume=False):
         scheduler.load_state_dict(state["scheduler"])
         history, start = state["history"], int(state["epoch"])
         best_score, best_epoch = state["best_score"], state["best_epoch"]
+        early_state = state.get("early_stopping_state")
+        if start and early_state is None:
+            raise ValueError("Checkpoint lacks early-stopping state; use fresh outputs")
     train_eval = make_loader(train_frame, cfg, task)
     val_eval = make_loader(val_frame, cfg, task)
     test_eval = make_loader(test_frame, cfg, task)
@@ -300,6 +322,10 @@ def train(cfg, task, seed, resume=False):
         }
         history.append(row)
         row["overfitting_warning"] = detect_overfitting(history, cfg)
+        early_state, should_stop = early_stopping_step(
+            v["macro_f1"], early_state, cfg, epoch+1)
+        row["early_stop_bad_epochs"] = early_state["bad_epochs"]
+        row["early_stop_triggered"] = should_stop
         if v["macro_f1"] > best_score:
             best_score, best_epoch = v["macro_f1"], epoch+1
             atomic_save({"model": model.state_dict(), "task": task, "seed": seed,
@@ -307,13 +333,19 @@ def train(cfg, task, seed, resume=False):
         atomic_save({"model": model.state_dict(), "optimizer": optim.state_dict(),
                      "scheduler": scheduler.state_dict(), "history": history,
                      "epoch": epoch+1, "best_score": best_score,
-                     "best_epoch": best_epoch, "task": task, "seed": seed}, last)
+                     "best_epoch": best_epoch, "task": task, "seed": seed,
+                     "early_stopping_state": early_state}, last)
         pd.DataFrame(history).to_csv(output / "history.csv", index=False)
         alert = " OVERFITTING_WARNING" if row["overfitting_warning"] else ""
         print(f"E9 {task} seed{seed} epoch {epoch+1}/300 "
               f"train_loss={t['loss']:.4f} val_loss={v['loss']:.4f} "
               f"train_acc={t['accuracy']:.4f} val_f1={v['macro_f1']:.4f}{alert}",
               flush=True)
+        if should_stop:
+            print(f"E9 EARLY STOP {task} seed{seed} after epoch {epoch+1}; "
+                  f"patience={cfg['early_stopping']['patience']}, "
+                  f"best_epoch={best_epoch}, best_macro_F1={best_score:.4f}", flush=True)
+            break
     model.load_state_dict(torch.load(best, map_location="cpu", weights_only=False)["model"])
     result, truth, pred, scores = evaluate(model, test_eval, task, cfg["device"], details=True)
     photos = test_frame[["id", "path", "label"]].copy().reset_index(drop=True)
@@ -334,10 +366,21 @@ def train(cfg, task, seed, resume=False):
     warnings = [h["epoch"] for h in history if h["overfitting_warning"]]
     dump_json(output / "overfitting_summary.json",
               {"warning_epochs": warnings, "best_epoch": best_epoch,
-               "epochs_completed": len(history), "early_stopping": False})
+               "epochs_completed": len(history), "early_stopping": True,
+                "patience": cfg["early_stopping"]["patience"],
+                "stopped_early": len(history) < cfg["epochs"]})
     # Completion marker is written last.
     dump_json(output / "metrics.json", {
         "task": task, "seed": seed, "classes": names, "epochs_completed": len(history),
+        "early_stopping": {
+            "enabled": True, "patience": int(cfg["early_stopping"]["patience"]),
+            "min_delta": float(cfg["early_stopping"].get("min_delta", 0.0)),
+            "stopped_early": len(history) < int(cfg["epochs"]),
+            "stop_epoch": len(history) if len(history) < int(cfg["epochs"]) else None,
+            "bad_epochs": early_state["bad_epochs"],
+            "last_significant_epoch": early_state["last_significant_epoch"],
+            "reason": "patience_exhausted" if len(history) < int(cfg["epochs"]) else "max_epochs",
+        },
         "best_epoch": best_epoch, "best_validation_macro_f1": best_score,
         "train_count": len(train_frame), "validation_count": len(val_frame),
         "test_count": len(test_frame), "test": result, "overfitting_warning_epochs": warnings,
@@ -453,13 +496,17 @@ def aggregate(cfg):
             if meta != source_provenance(cfg, task, seed):
                 raise ValueError(f"E9 provenance mismatch: {output}")
             record = json.loads(p.read_text())
-            if record["task"] != task or record["seed"] != seed or record["epochs_completed"] != 300:
-                raise ValueError(f"E9 run incomplete: {output}")
+            if (record["task"] != task or record["seed"] != seed or
+                not 1 <= record["epochs_completed"] <= cfg["epochs"] or
+                record.get("early_stopping", {}).get("patience") != cfg["early_stopping"]["patience"]):
+                raise ValueError(f"E9 run incomplete or incompatible: {output}")
             report = record["test"]
             rows.append({"task": task, "seed": seed, "test_accuracy": report["accuracy"],
                          "test_macro_f1": report["macro_f1"],
                          "best_epoch": record["best_epoch"],
                          "overfitting_warning_count": len(record["overfitting_warning_epochs"]),
+                         "epochs_completed": record["epochs_completed"],
+                         "stopped_early": record["early_stopping"]["stopped_early"],
                          "root_accuracy": report.get("root_accuracy"),
                          "root_bumper_door_accuracy": report.get("root_bumper_door_accuracy")})
             for label in record["classes"]:
@@ -471,7 +518,8 @@ def aggregate(cfg):
     frame = pd.DataFrame(rows)
     frame.to_csv(root / "trained_per_seed.csv", index=False)
     summary = frame.groupby("task")[["test_accuracy", "test_macro_f1", "root_accuracy",
-                                     "root_bumper_door_accuracy"]].agg(["mean", "std"])
+                                     "root_bumper_door_accuracy", "epochs_completed",
+                                     "best_epoch"]].agg(["mean", "std"])
     summary.columns = ["_".join(c) for c in summary.columns]
     summary["n_seeds"] = frame.groupby("task").seed.nunique()
     summary.to_csv(root / "trained_mean_std.csv")
