@@ -140,3 +140,27 @@ def test_source_signature_fails_closed(config):
         ex.source_signature(config, "e14a")
     with pytest.raises(FileNotFoundError):
         ex.source_signature(config, "e13b")
+
+
+def test_fixed_partitions_reject_wrong_sizes(monkeypatch, config):
+    three = [pd.DataFrame({"id": ["a"], "label": ["unknown"]}),
+             pd.DataFrame({"id": ["b"], "label": ["unknown"]}),
+             pd.DataFrame({"id": ["c"], "label": ["unknown"]})]
+    monkeypatch.setattr(ex, "partitions", lambda cfg: tuple(three))
+    with pytest.raises(ValueError, match="split sizes"):
+        ex.fixed_partitions(config)
+
+
+def test_cached_frozen_features_preserve_original_ids(config):
+    class MockDataset(torch.utils.data.Dataset):
+        def __len__(self):
+            return 5
+        def __getitem__(self, ix):
+            return torch.full((3, 4, 4), float(ix)), ix % 6, ix
+    class MockModel(nn.Module):
+        def embedding(self, x):
+            return x.flatten(1).mean(1, keepdim=True)
+    cached = ex.frozen_features(MockModel(), MockDataset(), config)
+    assert len(cached) == 5
+    assert [int(cached[i][2]) for i in range(5)] == list(range(5))
+    assert cached[4][0].item() == pytest.approx(4.0)
