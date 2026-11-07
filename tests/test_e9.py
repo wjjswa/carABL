@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from carrepair.common import read_config
 from carrepair.e9 import (
     EIGHT, BINARY, TASKS, PARENTS, HierarchicalClassifier,
-    datasets, part_label, zero_shot_decision,
+    datasets, part_label, zero_shot_decision, early_stopping_step,
 )
 from carrepair.e9_submit import jobs
 
@@ -72,9 +72,30 @@ def test_e9_job_matrix_and_epoch_policy():
     cfg = read_config("configs/e9.yaml")
     assert cfg["output"] == "outputs/e9"
     assert cfg["epochs"] == 300
+    assert cfg["early_stopping"]["patience"] == 30
+    assert cfg["early_stopping"]["monitor"] == "val_macro_f1"
     assert cfg["seeds"] == [0, 1, 2]
     assert cfg["pretrained"]["repository"] == "Majorburn/yolov11-carparts-seg"
     assert TASKS == ("binary", "hierarchical")
     matrix = jobs(cfg)
     assert len(matrix) == 7 and matrix[0] == ("zero-shot", None)
     assert set(matrix[1:]) == {(t, s) for t in TASKS for s in cfg["seeds"]}
+
+
+def test_patience_30_for_both_e9_training_tasks():
+    config = read_config("configs/e9.yaml")
+    for task in TASKS:
+        state = None
+        for epoch in range(1, 31):
+            state, stop = early_stopping_step(.8, state, config, epoch)
+            assert not stop, task
+        state, stop = early_stopping_step(.8, state, config, 31)
+        assert stop, task
+        assert state["bad_epochs"] == 30
+        state, stop = early_stopping_step(.803, state, config, 32)
+        assert not stop and state["bad_epochs"] == 0
+
+
+def test_e9_zero_shot_has_no_training_step():
+    config = read_config("configs/e9.yaml")
+    assert jobs(config)[0] == ("zero-shot", None)
