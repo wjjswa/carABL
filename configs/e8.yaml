@@ -1,5 +1,6 @@
-# E8: shared Carparts-Seg part-pretrained YOLOv8s backbone -> 8-class and 7-class full fine-tuning.
-# Keep the established group-disjoint carABL manifest unchanged. No training-fraction experiments.
+# E8: directly fine-tune Majorburn's Carparts-Seg pretrained YOLO11 backbone.
+# Separate full-data classification runs: 8 classes (including unknown), 7 classes (excluding unknown).
+# All 300 epochs run; overfitting is monitored, not used for early stopping.
 manifest: data/prepared/manifest.csv
 data_root: data/kaggle
 output: outputs/e8
@@ -12,19 +13,15 @@ seeds: [0, 1, 2]
 lr: 0.0001
 head_lr: 0.001
 weight_decay: 0.0001
-# Overfitting checking is observational: always run 300 epochs (no automatic early stop).
-overfit_window: 15
-overfit_min_train_improvement: 0.02
-overfit_min_val_worsening: 0.02
-overfit_loss_ratio: 1.30
-segmentation:
-  # Initial general-purpose weights: NOT already trained on Carparts-Seg.
-  init_checkpoint: yolov8s-seg.pt
-  data: carparts-seg.yaml
-  epochs: 300
-  image_size: 640
-  batch_size: 16
-  patience: 301
-  seed: 0
-  # Relative to output root. After part pretraining this file must exist:
-  checkpoint: outputs/e8/part_seg/seed0/weights/best.pt
+pretrained:
+  repository: Majorburn/yolov11-carparts-seg
+  revision: f26ca7107b40dd9a385ea82fd2fef8a3d6044dc7
+  filename: best.pt
+  checkpoint: weights/carparts/majorburn_yolo11_carparts_seg.pt
+  expected_classes: 23
+overfitting:
+  window: 15
+  min_train_loss_improvement: 0.02
+  min_val_loss_worsening: 0.02
+  min_val_train_loss_ratio: 1.30
+  min_accuracy_gap: 0.15
