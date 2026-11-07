@@ -50,3 +50,23 @@ activegcd:
   ema_decay: 0.9
   grad_from_block: 11
   dino_repo: facebookresearch/dino:7c446df5b9f45747937fb0d72314eb9f7b66930a
+
+# E6/E7: identical known-only data, frozen DINO encoder, stream order and seeds.
+# No total/new class count is supplied to the discovery algorithms.
+open_world:
+  known: [bumper_dent, door_dent, bumper_scratch, door_scratch]
+  exclude: [unknown]
+  support_fraction: 0.8
+  dino_repo: facebookresearch/dino:7c446df5b9f45747937fb0d72314eb9f7b66930a
+  pca_dim: 24
+  age:
+    beta: 0.5
+    std_scale: 0.8
+    covariance_prior: 2.0
+    ridge: 0.00001
+    window: 32
+  dpboa:
+    alpha: 10.0
+    kappa0: 0.25
+    nu_extra: 4.0
+    ridge: 0.0001
