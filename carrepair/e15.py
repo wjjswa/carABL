@@ -59,7 +59,7 @@ def evaluation_dir(cfg, variant, seed):
 
 def source_hash(cfg, variant):
     # Reuse the exact E14 checkpoint fingerprinting, including safetensors.
-    e14_cfg = {"variants": {"e14d": setting_for(cfg, variant)}}
+    e14_cfg = {"variants": {"e14d": {**setting_for(cfg, variant), "kind": "hf"}}}
     return source_signature(e14_cfg, "e14d")
 
 
