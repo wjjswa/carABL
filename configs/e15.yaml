@@ -1,0 +1,34 @@
+# E15: direct eight-class SigLIP2 Base classification, no cascade.
+# Generate configs/e15_artemis.yaml using scripts/create_e15_artemis_config.py
+manifest: data/prepared/manifest.csv
+data_root: data/kaggle
+output: outputs/e15
+device: cuda
+workers: 4
+batch_size: 16
+epochs: 300
+seeds: [0, 1, 2]
+head_lr: 0.001
+weight_decay: 0.0001
+early_stopping:
+  monitor: val_macro_f1
+  patience: 30
+  min_delta: 0.001
+variants:
+  e15a:
+    family: siglip2
+    mode: partial
+    image_size: 224
+    pretrained_repo: google/siglip2-base-patch16-224
+    pretrained_revision: 75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2
+    pretrained_dir: weights/hf/siglip2-base-patch16-224
+    unfreeze_last_blocks: 4
+    backbone_lr: 0.00001
+  e15b:
+    family: siglip2
+    mode: full
+    image_size: 224
+    pretrained_repo: google/siglip2-base-patch16-224
+    pretrained_revision: 75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2
+    pretrained_dir: weights/hf/siglip2-base-patch16-224
+    backbone_lr: 0.00001
