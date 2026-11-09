@@ -28,6 +28,7 @@ from torchvision import transforms as T
 
 from .common import atomic_save, dump_json, file_hash, read_config, seed_all
 from .data import open_image
+from .e9 import early_stopping_step
 from .e11 import (
     ROOT, DIRECT, EIGHT, BINARY, ExpertImages, build_root, error_analysis,
     hard_route, joint_probabilities, load_expert, partitions, root_label,
@@ -147,47 +148,56 @@ def _move(images, device):
     return images.to(device)
 
 
+def _vision_layers_and_norm(module):
+    """Resolve actual Transformers DINOv3 and SigLIP2 vision layouts."""
+    if getattr(module.config, "model_type", None) == "dinov3_vit":
+        return module.layer, module.norm
+    if getattr(module.config, "model_type", None) == "siglip_vision_model":
+        vision = module.vision_model
+        return vision.encoder.layers, vision.post_layernorm
+    raise TypeError(f"Unsupported HF vision layout: {type(module).__name__}")
+
+
 def _transformer_blocks(module):
-    """Resolve the documented HF DINOv3/SigLIP2 encoder block containers."""
-    encoder = getattr(module, "encoder", None)
-    if encoder is None:
-        raise TypeError("HF vision model lacks expected encoder")
-    for attr in ("layer", "layers"):
-        candidate = getattr(encoder, attr, None)
-        if isinstance(candidate, (nn.ModuleList, nn.Sequential)):
-            return candidate
-    raise TypeError("Unknown HF transformer block layout; update adapter explicitly")
+    return _vision_layers_and_norm(module)[0]
 
 
 class HFRoot(nn.Module):
     def __init__(self, setting):
         super().__init__()
-        from transformers import AutoModel, Siglip2VisionModel
+        from transformers import AutoConfig, AutoModel, SiglipVisionModel
         family = setting["family"]
         location = str(setting["pretrained_dir"])
+        source_config = AutoConfig.from_pretrained(location, local_files_only=True)
         if family == "dinov3":
-            self.encoder = AutoModel.from_pretrained(location, local_files_only=True)
+            if source_config.model_type != "dinov3_vit":
+                raise ValueError("DINOv3 variant requires a DINOv3 ViT snapshot")
+            self.encoder, loading = AutoModel.from_pretrained(
+                location, local_files_only=True, output_loading_info=True)
         elif family == "siglip2":
-            self.encoder = Siglip2VisionModel.from_pretrained(
-                location, local_files_only=True)
+            # The fixed-resolution SigLIP2 checkpoint is published as 'siglip'.
+            # Siglip2VisionModel is the NaFlex architecture and is incompatible.
+            if source_config.model_type not in ("siglip", "siglip_vision_model"):
+                raise ValueError("E14-D requires the fixed-resolution SigLIP2 SiglipVisionModel snapshot")
+            self.encoder, loading = SiglipVisionModel.from_pretrained(
+                location, local_files_only=True, output_loading_info=True)
         else:
             raise ValueError(f"Unsupported HF family: {family}")
+        if loading.get("missing_keys") or loading.get("mismatched_keys"):
+            raise ValueError(f"Pretrained vision weights did not load completely: {loading}")
         dimension = int(self.encoder.config.hidden_size)
         self.head = nn.Linear(dimension, len(ROOT))
         self.mode = setting["mode"]
         self.encoder.requires_grad_(False)
         if self.mode == "partial":
-            blocks = _transformer_blocks(self.encoder)
+            blocks, norm = _vision_layers_and_norm(self.encoder)
             n = int(setting["unfreeze_last_blocks"])
             if not 0 < n <= len(blocks):
                 raise ValueError(f"Bad unfreeze_last_blocks={n}, total={len(blocks)}")
             for block in list(blocks)[-n:]:
                 block.requires_grad_(True)
             # Keep final normalization trainable for feature-space adaptation.
-            for name in ("layernorm", "layer_norm", "post_layernorm", "norm"):
-                norm = getattr(self.encoder, name, None)
-                if isinstance(norm, nn.Module):
-                    norm.requires_grad_(True)
+            norm.requires_grad_(True)
         elif self.mode != "frozen":
             raise ValueError("HF modes must be 'frozen' or 'partial'")
         if not any(p.requires_grad for p in self.head.parameters()):
@@ -379,6 +389,28 @@ def fixed_partitions(cfg):
     return frames
 
 
+def save_curves(out, history, variant):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    frame = pd.DataFrame(history)
+    for filename, train_column, val_column, ylabel in (
+        ("loss_curve.png", "train_eval_loss", "val_loss", "Cross-entropy"),
+        ("accuracy_curve.png", "train_eval_accuracy", "val_accuracy", "Accuracy"),
+        ("f1_curve.png", "train_eval_macro_f1", "val_macro_f1", "Macro-F1"),
+    ):
+        fig, axis = plt.subplots(figsize=(8, 4.5))
+        axis.plot(frame.epoch, frame[train_column], label="Train")
+        axis.plot(frame.epoch, frame[val_column], label="Validation")
+        axis.set(xlabel="Epoch", ylabel=ylabel, title=f"{variant.upper()} {ylabel}")
+        if ylabel != "Cross-entropy":
+            axis.set_ylim(0, 1)
+        axis.legend()
+        fig.tight_layout()
+        fig.savefig(out / filename, dpi=150)
+        plt.close(fig)
+
+
 def train_one(cfg, variant, seed, resume=False):
     verify_protocol(cfg, variant)
     if seed not in cfg["seeds"]:
@@ -430,6 +462,7 @@ def train_one(cfg, variant, seed, resume=False):
     optimiser = torch.optim.AdamW(groups, weight_decay=float(cfg["weight_decay"]))
     schedule = torch.optim.lr_scheduler.CosineAnnealingLR(optimiser, int(cfg["epochs"]))
     history, start, best_score, best_epoch, bad_epochs = [], 0, -1.0, None, 0
+    early_state = None
     last = out / "last.pt"
     if resume and last.is_file():
         checkpoint = torch.load(last, map_location="cpu", weights_only=False)
@@ -443,6 +476,13 @@ def train_one(cfg, variant, seed, resume=False):
         best_score = float(checkpoint["best_score"])
         best_epoch = checkpoint["best_epoch"]
         bad_epochs = int(checkpoint["bad_epochs"])
+        early_state = checkpoint.get("early_stopping_state")
+        if early_state is None:
+            # Recover the E11 patience rule from older E13/E14 checkpoints.
+            for row in history:
+                early_state, _ = early_stopping_step(
+                    row["val_macro_f1"], early_state, cfg, row["epoch"])
+            bad_epochs = early_state["bad_epochs"]
         if bad_epochs >= int(cfg["early_stopping"]["patience"]):
             start = int(cfg["epochs"])  # already early-stopped; only finalize metrics
     for epoch in range(start, int(cfg["epochs"])):
@@ -474,11 +514,8 @@ def train_one(cfg, variant, seed, resume=False):
         training = measure(active_model, train_eval, cfg)
         validation = measure(active_model, val_eval, cfg)
         score = validation["macro_f1"]
-        improved = score > best_score + float(cfg["early_stopping"]["min_delta"])
-        if improved:
-            bad_epochs = 0
-        else:
-            bad_epochs += 1
+        early_state, stop = early_stopping_step(score, early_state, cfg, epoch + 1)
+        bad_epochs = early_state["bad_epochs"]
         row = {
             "epoch": epoch + 1,
             "augmented_train_loss": total_loss / total_count,
@@ -510,18 +547,20 @@ def train_one(cfg, variant, seed, resume=False):
             "seed": seed, "variant": variant, "epoch": epoch + 1,
             "history": history, "best_score": best_score,
             "best_epoch": best_epoch, "bad_epochs": bad_epochs,
+            "early_stopping_state": early_state,
         }, last)
         pd.DataFrame(history).to_csv(out / "history.csv", index=False)
         print(f"{variant} seed{seed} epoch {epoch+1}/{cfg['epochs']} "
               f"train_acc={training['accuracy']:.4f} "
               f"val_acc={validation['accuracy']:.4f} "
               f"val_macro_f1={score:.4f} bad={bad_epochs}", flush=True)
-        if bad_epochs >= int(cfg["early_stopping"]["patience"]):
+        if stop:
             print(f"{variant} seed{seed} early stop; best epoch={best_epoch}",
                   flush=True)
             break
     if best_epoch is None:
         raise RuntimeError("Training finished without a best checkpoint")
+    save_curves(out, history, variant)
     dump_json(out / "metrics.json", {
         "variant": variant, "seed": seed,
         "task": "six_class_root_training",
@@ -532,6 +571,7 @@ def train_one(cfg, variant, seed, resume=False):
         "selection": "validation macro-F1",
         "parameter_counts": _count(model),
         "test_evaluated_during_training": False,
+        "early_stopping_state": early_state,
     })
 
 
@@ -714,7 +754,7 @@ def main(argv=None):
     if args.action == "aggregate":
         verify_protocol(cfg, require_sources=False)
         return aggregate(cfg, selected=args.variants or VARIANTS,
-                         reference_e11=args.reference_e11)
+                         reference_e11=args.reference_e11 or cfg.get("reference_e11"))
     if args.variant is None or args.seed is None:
         parser.error("train/evaluate require --variant and --seed")
     if args.action == "train":

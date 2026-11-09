@@ -11,6 +11,9 @@ python -m carrepair open-world --aggregate
 
 # carABL — vehicle damage experiments
 
+E13-B/C and E14-A/B/C/D follow the completed E11 damage-first cascade workflow.
+See [E13/E14 setup, real-input preflight, submission and E11 comparison](docs/e13e14.md).
+
 Remote-training code and a Streamlit results viewer for the ABL interview project.
 No dataset images, pretrained weights or fabricated experiment results are committed.
 Training is intended for your remote GPU platform; the automated checks use tiny

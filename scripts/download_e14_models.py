@@ -6,6 +6,11 @@ then run 'hf auth login' first. No token is included in configs or commits.
 from __future__ import annotations
 import argparse
 from pathlib import Path
+import sys
+
+# A direct script invocation puts scripts/, not the worktree root, on sys.path.
+# Always prefer THIS worktree over an editable install of an older E11/main.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from carrepair.common import read_config
 from carrepair.e13e14 import VARIANTS, variant_config

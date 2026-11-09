@@ -9,6 +9,8 @@ set -euo pipefail
 PROJECT_ROOT="$(pwd)"  # sbatch --chdir is set to the worktree root; script may be spooled elsewhere
 cd "$PROJECT_ROOT"
 source scripts/artemis_env.sh
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
 python - <<'PY'
 import torch
 print("CUDA", torch.version.cuda, flush=True)

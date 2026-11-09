@@ -12,8 +12,8 @@ from pathlib import Path
 
 from .common import file_hash, read_config
 from .e13e14 import (VARIANTS, root_dir, cascade_dir,
-                     source_signature, verify_protocol)
-from .e11 import expert_path
+                     verify_protocol)
+from .e13e14_preflight import needed_inputs, validate_inputs
 
 
 def job_order(variants, seeds):
@@ -27,25 +27,6 @@ def job_folder(cfg, variant, action, seed):
 
 def job_key(variant, action, seed):
     return f"{variant}-{action}-s{seed}"
-
-
-def needed_inputs(cfg, variants):
-    paths = [Path(cfg["manifest"]), Path(cfg["data_root"]),
-             Path(cfg["expert"]["source_checkpoint"])]
-    for seed in cfg["seeds"]:
-        p = expert_path(cfg, seed)
-        paths.extend([p, p.parent / "metrics.json", p.parent / "provenance.json",
-                      p.parent / "test_manifest.csv"])
-    for variant in variants:
-        setting = cfg["variants"][variant]
-        if setting["kind"] == "cardd":
-            paths.append(Path(cfg["checkpoint"]))
-        else:
-            location = Path(setting["pretrained_dir"])
-            paths.extend([location / "config.json",
-                          location / "preprocessor_config.json"])
-            paths.extend(sorted(location.glob("*.safetensors")))
-    return list(dict.fromkeys(paths))
 
 
 def main(argv=None):
@@ -69,13 +50,7 @@ def main(argv=None):
     if not (conf_path.is_file() and script.is_file()):
         raise FileNotFoundError("Missing Artemis config or Slurm job script")
     if args.submit:
-        for p in needed_inputs(cfg, variants):
-            if not p.exists():
-                raise FileNotFoundError(f"Missing required input: {p}")
-        for variant in variants:
-            source_signature(cfg, variant)  # validates actual snapshot weights
-        if file_hash(cfg["expert"]["source_checkpoint"]) != cfg["expert"]["source_sha256"]:
-            raise ValueError("E9-B source SHA256 mismatch; wrong model")
+        validate_inputs(cfg, variants)
     registry = Path(args.registry)
     signature = file_hash(conf_path)
     previous = json.loads(registry.read_text()) if registry.exists() else None
