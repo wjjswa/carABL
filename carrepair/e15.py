@@ -133,7 +133,7 @@ class DirectSigLIP2(HFRoot):
             blocks, norm = _vision_layers_and_norm(self.encoder)
             assert len(blocks) >= 4
             assert any(p.requires_grad for p in norm.parameters())
-            assert all(not p.requires_grad for p in list(blocks)[:-4] for _ in [0])
+            assert all(not p.requires_grad for block in list(blocks)[:-4] for p in block.parameters())
         if mode == "full" and not all(p.requires_grad for p in self.parameters()):
             raise RuntimeError("Full fine-tuning did not unfreeze all parameters")
 
