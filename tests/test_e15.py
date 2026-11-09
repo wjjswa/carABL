@@ -60,3 +60,20 @@ def test_checkpoint_trainable_state_roundtrip():
     _load_trained_state(model, {"state": state, "state_kind": kind})
     for key, tensor in model.named_parameters():
         assert torch.equal(tensor.cpu(), expected[key])
+
+
+def test_source_hash_accepts_e15_settings_without_kind(tmp_path):
+    """E15 configs do not need an E14-only 'kind' field."""
+    from carrepair.e15 import source_hash
+    cfg = config()
+    model = tmp_path / "weights"
+    model.mkdir()
+    (model / "config.json").write_text('{"model_type": "siglip"}')
+    (model / "preprocessor_config.json").write_text('{}')
+    (model / "model.safetensors").write_bytes(b"fixture-only-hash")
+    for variant in cfg["variants"].values():
+        variant["pretrained_dir"] = str(model)
+    first = source_hash(cfg, "e15a")
+    second = source_hash(cfg, "e15b")
+    assert len(first) == 64
+    assert first == second
