@@ -1,0 +1,77 @@
+# E14 ungated replacement: DINOv2 S/14, B/14, and the existing SigLIP2 baseline.
+# Generate a NEW local config, output and submission registry; preserve E13 runs.
+manifest: data/prepared/manifest.csv
+data_root: data/kaggle
+output: outputs/e14_ungated
+device: cuda
+workers: 4
+batch_size: 16
+epochs: 300
+seeds:
+- 0
+- 1
+- 2
+lr: 0.0001
+head_lr: 0.001
+weight_decay: 0.0001
+early_stopping:
+  monitor: val_macro_f1
+  patience: 30
+  min_delta: 0.001
+checkpoint: weights/cardd-v2.pt
+expert:
+  directory: outputs/e9/binary
+  source_checkpoint: weights/carparts/majorburn_yolo11_carparts_best.pt
+  source_sha256: 6759cf983e0bdefaa95d2d3fc6b37f89d3718a319c08617c3c7a339e18fdc3cd
+  expected_parts: 23
+  image_size: 384
+variants:
+  e13b:
+    kind: cardd
+    image_size: 384
+    augmentation: pad
+    backbone_lr: 0.0001
+  e13c:
+    kind: cardd
+    image_size: 384
+    augmentation: mild
+    backbone_lr: 0.0001
+  e14a:
+    kind: hf
+    family: dinov2
+    mode: frozen
+    image_size: 224
+    pretrained_repo: facebook/dinov2-small
+    pretrained_dir: weights/hf/dinov2-small
+    unfreeze_last_blocks: 0
+    pretrained_revision: ed25f3a31f01632728cabb09d1542f84ab7b0056
+  e14b:
+    kind: hf
+    family: dinov2
+    mode: partial
+    image_size: 224
+    pretrained_repo: facebook/dinov2-small
+    pretrained_dir: weights/hf/dinov2-small
+    unfreeze_last_blocks: 4
+    backbone_lr: 1.5e-05
+    pretrained_revision: ed25f3a31f01632728cabb09d1542f84ab7b0056
+  e14c:
+    kind: hf
+    family: dinov2
+    mode: partial
+    image_size: 224
+    pretrained_repo: facebook/dinov2-base
+    pretrained_dir: weights/hf/dinov2-base
+    unfreeze_last_blocks: 4
+    backbone_lr: 1.0e-05
+    pretrained_revision: f9e44c814b77203eaa57a6bdbbd535f21ede1415
+  e14d:
+    kind: hf
+    family: siglip2
+    mode: partial
+    image_size: 224
+    pretrained_repo: google/siglip2-base-patch16-224
+    pretrained_dir: weights/hf/siglip2-base-patch16-224
+    unfreeze_last_blocks: 4
+    backbone_lr: 1.0e-05
+    pretrained_revision: 75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2

@@ -13,6 +13,7 @@ python -m carrepair open-world --aggregate
 
 E13-B/C and E14-A/B/C/D follow the completed E11 damage-first cascade workflow.
 See [E13/E14 setup, real-input preflight, submission and E11 comparison](docs/e13e14.md).
+For public models requiring no access approval, use [E14 ungated: DINOv2 + SigLIP2](docs/e14_ungated.md).
 
 Remote-training code and a Streamlit results viewer for the ABL interview project.
 No dataset images, pretrained weights or fabricated experiment results are committed.

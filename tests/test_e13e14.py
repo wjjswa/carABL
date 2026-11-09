@@ -176,6 +176,13 @@ def tiny_hf_sources(tmp_path):
     dino_path = tmp_path / "dinov3"
     dino.save_pretrained(dino_path)
     hf.DINOv3ViTImageProcessorFast(size={"height": 32, "width": 32}).save_pretrained(dino_path)
+    dinov2 = hf.Dinov2Model(hf.Dinov2Config(
+        hidden_size=32, num_hidden_layers=6, num_attention_heads=4,
+        image_size=28, patch_size=14))
+    dinov2_path = tmp_path / "dinov2"
+    dinov2.save_pretrained(dinov2_path)
+    hf.BitImageProcessor(size={"shortest_edge": 36},
+                         crop_size={"height": 32, "width": 32}).save_pretrained(dinov2_path)
     # Match Google's fixed-resolution full image/text checkpoint structure.
     siglip = hf.SiglipModel(hf.SiglipConfig(
         text_config={"hidden_size": 32, "intermediate_size": 64,
@@ -187,13 +194,16 @@ def tiny_hf_sources(tmp_path):
     siglip_path = tmp_path / "siglip2-fixed"
     siglip.save_pretrained(siglip_path)
     hf.SiglipImageProcessor(size={"height": 32, "width": 32}).save_pretrained(siglip_path)
-    return {"dinov3": dino_path, "siglip2": siglip_path}
+    return {"dinov3": dino_path, "dinov2": dinov2_path, "siglip2": siglip_path}
 
 
 @pytest.mark.parametrize("variant", ["e14a", "e14b", "e14c", "e14d"])
+@pytest.mark.parametrize("dino_family", ["dinov3", "dinov2"])
 def test_actual_hf_loading_gradients_processor_and_checkpoint_roundtrip(
-        variant, config, tiny_hf_sources, tmp_path):
+        variant, dino_family, config, tiny_hf_sources, tmp_path):
     setting = config["variants"][variant]
+    if variant != "e14d":
+        setting["family"] = dino_family
     setting["pretrained_dir"] = str(tiny_hf_sources[setting["family"]])
     setting["image_size"] = 32
     image = tmp_path / "sample.jpeg"
@@ -228,6 +238,8 @@ def test_actual_hf_loading_gradients_processor_and_checkpoint_roundtrip(
     restored = ex.HFRoot(setting).eval()
     ex._load_trained_state(restored, {"state": state, "state_kind": kind})
     torch.testing.assert_close(restored(images), expected)
+    from transformers.feature_extraction_utils import BatchFeature
+    torch.testing.assert_close(restored(BatchFeature(images)), expected)
     if variant == "e14d":
         from transformers import SiglipModel
         original = SiglipModel.from_pretrained(setting["pretrained_dir"], local_files_only=True)
@@ -240,6 +252,46 @@ def test_arbitrary_hf_architecture_is_rejected(config, tiny_hf_sources):
                    pretrained_dir=str(tiny_hf_sources["siglip2"]))
     with pytest.raises(ValueError, match="DINOv3 ViT snapshot"):
         ex.HFRoot(setting)
+
+
+def test_ungated_template_preserves_e11_protocol_and_isolates_results():
+    from carrepair.common import read_config
+    cfg = read_config("configs/e14_ungated.yaml")
+    original = read_config("configs/e13e14.yaml")
+    assert cfg["output"] == "outputs/e14_ungated"
+    for name in ("manifest", "data_root", "checkpoint", "expert", "seeds",
+                 "epochs", "early_stopping"):
+        assert cfg[name] == original[name]
+    for variant, model in (("e14a", "small"), ("e14b", "small"), ("e14c", "base")):
+        setting = cfg["variants"][variant]
+        assert setting["family"] == "dinov2"
+        assert setting["pretrained_repo"] == "facebook/dinov2-" + model
+        assert len(setting["pretrained_revision"]) == 40
+        ex.verify_protocol(cfg, variant, require_sources=False)
+    assert cfg["variants"]["e14d"]["pretrained_repo"] == original["variants"]["e14d"]["pretrained_repo"]
+
+
+def test_anonymous_downloader_pins_revision_and_deduplicates_models(tmp_path, monkeypatch):
+    import yaml
+    import huggingface_hub
+    from scripts.download_e14_models import main
+    from carrepair.common import read_config
+    cfg = read_config("configs/e14_ungated.yaml")
+    for variant in ("e14a", "e14b", "e14c", "e14d"):
+        setting = cfg["variants"][variant]
+        setting["pretrained_dir"] = str(tmp_path / setting["pretrained_repo"].split("/")[-1])
+    config_path = tmp_path / "ungated.yaml"
+    config_path.write_text(yaml.safe_dump(cfg))
+    calls = []
+    def fake_download(**kwargs):
+        calls.append(kwargs)
+        path = Path(kwargs["local_dir"])
+        (path / "config.json").write_text("{}")
+        (path / "model.safetensors").write_bytes(b"fixture")
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", fake_download)
+    main(["--config", str(config_path), "--variants", "e14a", "e14b", "e14c", "e14d", "--anonymous"])
+    assert len(calls) == 3
+    assert all(call["token"] is False and len(call["revision"]) == 40 for call in calls)
 
 
 def test_e11_config_paths_are_absolute_and_do_not_change_e11(tmp_path):

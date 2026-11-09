@@ -4,6 +4,7 @@ E13-B/C: CarDD v2 YOLOv8s backbone at 384px with aspect-preserving padding.
 E14-A: frozen DINOv3-S/16 + learned linear six-way head (cached features).
 E14-B/C: DINOv3-S/16 or B/16, last four transformer blocks fine-tuned.
 E14-D: SigLIP2 Base vision encoder, last four blocks fine-tuned.
+The separate e14_ungated.yaml template replaces DINOv3 with DINOv2 S/B/14.
 
 No re-split, no test-time tuning, same-seed frozen E9-B expert for eight-class
 hard/soft routing. Validation macro-F1 selects checkpoints. Test used only
@@ -12,6 +13,7 @@ after model selection; historical 226-image benchmark is exploratory.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping
 import hashlib
 import json
 from pathlib import Path
@@ -143,13 +145,15 @@ def batches(dataset, cfg, shuffle=False, seed=0):
 
 
 def _move(images, device):
-    if isinstance(images, dict):
+    if isinstance(images, Mapping):
         return {key: value.to(device) for key, value in images.items()}
     return images.to(device)
 
 
 def _vision_layers_and_norm(module):
-    """Resolve actual Transformers DINOv3 and SigLIP2 vision layouts."""
+    """Resolve actual Transformers DINOv2/DINOv3/SigLIP2 vision layouts."""
+    if getattr(module.config, "model_type", None) == "dinov2":
+        return module.encoder.layer, module.layernorm
     if getattr(module.config, "model_type", None) == "dinov3_vit":
         return module.layer, module.norm
     if getattr(module.config, "model_type", None) == "siglip_vision_model":
@@ -169,9 +173,11 @@ class HFRoot(nn.Module):
         family = setting["family"]
         location = str(setting["pretrained_dir"])
         source_config = AutoConfig.from_pretrained(location, local_files_only=True)
-        if family == "dinov3":
-            if source_config.model_type != "dinov3_vit":
-                raise ValueError("DINOv3 variant requires a DINOv3 ViT snapshot")
+        if family in ("dinov2", "dinov3"):
+            expected_type = {"dinov2": "dinov2", "dinov3": "dinov3_vit"}[family]
+            if source_config.model_type != expected_type:
+                display = {"dinov2": "DINOv2", "dinov3": "DINOv3"}[family]
+                raise ValueError(f"{display} variant requires a {display} ViT snapshot")
             self.encoder, loading = AutoModel.from_pretrained(
                 location, local_files_only=True, output_loading_info=True)
         elif family == "siglip2":
@@ -204,7 +210,7 @@ class HFRoot(nn.Module):
             raise RuntimeError("Classification head must be trainable")
 
     def embedding(self, inputs):
-        output = self.encoder(**inputs) if isinstance(inputs, dict) else self.encoder(pixel_values=inputs)
+        output = self.encoder(**inputs) if isinstance(inputs, Mapping) else self.encoder(pixel_values=inputs)
         representation = getattr(output, "pooler_output", None)
         if representation is None:
             representation = output.last_hidden_state[:, 0]
