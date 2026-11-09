@@ -7,7 +7,7 @@ from .common import read_config
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description='carABL experiments 1–4 and 5B; no 5A')
+    parser = argparse.ArgumentParser(description='carABL experiments 1–4, 5B, 6 and 7; no 5A')
     sub = parser.add_subparsers(dest='command', required=True)
     prep = sub.add_parser('prepare')
     prep.add_argument('--root', required=True); prep.add_argument('--out', default='data/prepared')
@@ -16,11 +16,11 @@ def main(argv=None):
     prep.add_argument('--near-distance', type=int, default=2)
     download = sub.add_parser('download-model')
     download.add_argument('--out', default='weights/cardd-v2.pt')
-    for name in ['direct', 'supervised', 'dino', 'probe', 'activegcd', 'matrix', 'open-set']:
+    for name in ['direct', 'supervised', 'dino', 'probe', 'activegcd', 'matrix', 'open-set', 'open-world']:
         p = sub.add_parser(name)
         p.add_argument('--config', default='configs/default.yaml')
         p.add_argument('--device'); p.add_argument('--output'); p.add_argument('--resume', action='store_true')
-        if name in ['supervised', 'dino', 'probe', 'activegcd']:
+        if name in ['supervised', 'dino', 'probe', 'activegcd', 'open-world']:
             p.add_argument('--seed', type=int, default=0)
         if name in ['supervised', 'dino', 'probe']:
             p.add_argument('--method', choices=['full', 'lora', 'block', 'linear'], default='full')
@@ -30,6 +30,9 @@ def main(argv=None):
             p.add_argument('--experiment', type=int, choices=[2, 4], default=2)
         if name == 'activegcd':
             p.add_argument('--strategy', choices=['adaptive', 'random'], default='adaptive')
+        if name == 'open-world':
+            p.add_argument('--method', choices=['e6','e7'], default='e6')
+            p.add_argument('--aggregate', action='store_true')
         if name == 'direct':
             p.add_argument('--confidence', type=float, default=.25)
             p.add_argument('--image-size', type=int, default=1024)
@@ -77,13 +80,18 @@ def main(argv=None):
                 command += ['--device', args.device]
             if args.output:
                 command += ['--output', args.output]
-            if args.resume and 'activegcd' not in command:
+            if args.resume and not any(name in command for name in ['activegcd', 'open-world']):
                 command += ['--resume']
             import shlex
             print(shlex.join(command), flush=True)
             if args.run:
                 subprocess.run(command, check=True)
         return
+    if args.command == 'open-world':
+        from .open_world import run, aggregate
+        if args.resume:
+            raise ValueError('E6/E7 resume is unsupported; use a fresh output root for a deliberate restart')
+        return aggregate(cfg) if args.aggregate else run(cfg, args.method, args.seed)
     if args.command == 'open-set':
         from .open_set import run
         return run(cfg, args.resume)
@@ -126,6 +134,9 @@ def build_matrix(config_path, cfg, experiments):
         if '5b' in experiments:
             for strategy in ['random', 'adaptive']:
                 commands.append(cmd('activegcd', '--seed', seed, '--strategy', strategy))
+        for experiment in ['6', '7']:
+            if experiment in experiments:
+                commands.append(cmd('open-world', '--seed', seed, '--method', 'e'+experiment))
     return commands
 
 

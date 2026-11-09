@@ -1,3 +1,14 @@
+## New: E6 AGE and E7 DP-BOA online category discovery
+
+E6 and E7 test **no pre-specified new-class count** with four known-only support categories and a prequential mixed-class held-out test stream. Both are adapted research baselines (E7 is independent paper-inspired code, not official reproduction). Results are **not yet available** until Artemis runs complete. See [protocol, limitations, results and Artemis submission](docs/open_world.md).
+
+```bash
+bash scripts/submit_all.sh --experiments 6 7 --registry logs/submissions_e6_e7.json  # preview
+bash scripts/submit_all.sh --experiments 6 7 --registry logs/submissions_e6_e7.json --submit
+# after all jobs complete:
+python -m carrepair open-world --aggregate
+```
+
 # carABL — vehicle damage experiments
 
 Remote-training code and a Streamlit results viewer for the ABL interview project.
@@ -208,7 +219,7 @@ Remote GPU training quality and Kaggle performance require running the jobs.
 
 ## Short preflight before full submissions
 
-The 12 pytest checks run on the login node and require no GPU allocation.
+The pytest checks use synthetic CPU fixtures and require no GPU allocation.
 For a real-data integration smoke test, after downloading the dataset/checkpoint:
 
 ```bash

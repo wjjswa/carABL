@@ -67,6 +67,11 @@ def build_jobs(cfg, config_path, experiments):
             for strategy in ['random', 'adaptive']:
                 add(f'e5b-{strategy}-s{seed}', ['activegcd', '--strategy', strategy, '--seed', seed],
                     output/'exp5b'/f'{strategy}_seed{seed}', 'protocol.json')
+        for experiment in ['6', '7']:
+            if experiment in experiments:
+                add(f'e{experiment}-s{seed}',
+                    ['open-world', '--method', 'e'+experiment, '--seed', seed],
+                    output/f'exp{experiment}'/f'seed{seed}')
     if len({j.key for j in jobs}) != len(jobs):
         raise ValueError('Duplicate job keys')
     return jobs
@@ -108,6 +113,8 @@ def submit_jobs(jobs, root, registry_path, signature, submit=False, resume=False
         if j.directory.exists() and any(j.directory.iterdir()):
             if j.args[0] == 'activegcd':
                 problems.append(f'{j.key}: incomplete ActiveGCD output; mid-round resume is unsupported. Use a fresh output root for a deliberate restart.')
+            elif j.args[0] == 'open-world':
+                problems.append(f'{j.key}: incomplete E6/E7 output; resume is unsupported. Check the job state, then use a fresh output root and registry for a deliberate restart.')
             elif j.args[0] != 'direct' and not resume:
                 problems.append(f'{j.key}: existing incomplete output; check for a manually running job, or use --resume after it stops.')
     if problems:
@@ -160,7 +167,7 @@ def submit_jobs(jobs, root, registry_path, signature, submit=False, resume=False
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', default='configs/default.yaml')
-    parser.add_argument('--experiments', nargs='+', choices=['1', '2', '3', '4', '5b'], default=['1','2','3','4','5b'])
+    parser.add_argument('--experiments', nargs='+', choices=['1', '2', '3', '4', '5b', '6', '7'], default=['1','2','3','4','5b'])
     parser.add_argument('--submit', action='store_true', help='Actually call sbatch; default only prints the plan')
     parser.add_argument('--resume', action='store_true', help='Resume incomplete Exp2/3/4 only; check that no manual jobs are running first')
     parser.add_argument('--registry', default='logs/submissions.json')
@@ -188,7 +195,12 @@ def main(argv=None):
         recorded = job.directory/'provenance.json'
         if recorded.exists():
             previous = json.loads(recorded.read_text())
-            if previous.get('config') != cfg:
+            previous_cfg = previous.get('config')
+            if job.args[0] == 'open-world' and previous_cfg is not None:
+                # Earlier E6/E7 provenance stored run identity inside config.
+                previous_cfg = {k: v for k, v in previous_cfg.items()
+                                if k not in {'open_world_method', 'run_seed'}}
+            if previous_cfg != cfg:
                 raise ValueError(f'{job.key}: output was created with a different config; use a fresh output root.')
             for key in ['manifest', 'checkpoint']:
                 if previous.get(key+'_sha256') != material[key]:

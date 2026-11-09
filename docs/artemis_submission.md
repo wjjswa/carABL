@@ -90,6 +90,8 @@ flags as required. Below are the COMMAND ARGUMENTS appended to the wrapper:
 | Exp4 train from scratch | supervised --experiment 4 --method full --fraction .2 --seed 0 |
 | Exp5B random query baseline | activegcd --strategy random --seed 0 |
 | Exp5B adaptive query method | activegcd --strategy adaptive --seed 0 |
+| Exp6 AGE adaptation | open-world --method e6 --seed 0 |
+| Exp7 DP-BOA-inspired adaptation | open-world --method e7 --seed 0 |
 
 If changing the config, add --config YOUR_CONFIG to every training/evaluation
 command, not only the first. There is no Experiment 5A.
@@ -125,6 +127,15 @@ Independent Exp2/Exp4/Exp5B runs can be separate jobs, subject to your allocatio
 | Exp3 | outputs/exp3/ |
 | Exp4 | outputs/exp4/ |
 | Exp5B | outputs/exp5b/ |
+| Exp6 | outputs/exp6/seedN/ |
+| Exp7 | outputs/exp7/seedN/ |
+| Exp6/7 comparison | outputs/open_world_comparison/ |
+
+E6/E7 use the existing `carabl` environment and the same Slurm planner:
+`bash scripts/submit_all.sh --experiments 6 7 --registry logs/submissions_e6_e7.json`
+previews six jobs; append `--submit` to queue them. E1–E5 defaults, configs,
+checkpoints and output paths remain unchanged. See [open_world.md](open_world.md)
+for the exact branch update, DINO pre-cache and results-only download commands.
 
 Once real experiments finish:
 
